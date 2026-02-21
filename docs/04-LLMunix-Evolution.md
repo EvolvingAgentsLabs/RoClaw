@@ -1,0 +1,76 @@
+# LLMunix Evolution
+
+## Markdown Memory
+
+RoClaw's memory system is radically simple: markdown files.
+
+```
+src/3_llmunix_memory/
+├── system/
+│   ├── hardware.md    # Physical specs (wheel size, motor limits)
+│   └── identity.md    # "I am RoClaw"
+├── skills/            # Learned capabilities (populated over time)
+└── traces/            # Execution logs (populated during operation)
+```
+
+No database. No vector store. No embeddings. Just text files that an LLM can read and write.
+
+## System Memory
+
+The `system/` directory contains immutable facts about the robot:
+
+- **hardware.md**: Motor specs, chassis dimensions, camera resolution, safety limits. This is injected into every VLM prompt so the Cerebellum understands its physical constraints.
+- **identity.md**: Who the robot is. This grounds the LLM's self-model.
+
+## Skills (Future)
+
+The `skills/` directory will contain learned capabilities as markdown files:
+
+```markdown
+# Skill: Navigate Through Doorway
+
+## When to use
+When the goal mentions a room transition and a doorway is visible.
+
+## Procedure
+1. Align with the doorway center
+2. Move forward slowly (speed 60)
+3. Check clearance on both sides
+4. Accelerate once through
+
+## Learned from
+Trace #42, 2026-02-15
+```
+
+Skills are promoted from execution traces when a behavior pattern is confirmed across multiple runs.
+
+## Execution Traces (Future)
+
+The `traces/` directory will accumulate during operation:
+
+```markdown
+# Trace #42 — 2026-02-15T14:23:00Z
+
+## Goal
+Navigate to the kitchen
+
+## Frames
+- Frame 1: Hallway detected → FORWARD 80 80
+- Frame 2: Doorway visible → FORWARD 60 60
+- Frame 3: Through doorway → FORWARD 80 80
+- Frame 4: Kitchen counter visible → STOP
+
+## Outcome
+SUCCESS — Reached kitchen in 12 frames (6 seconds)
+```
+
+## The Dreaming Engine (Future)
+
+Between active operation periods, RoClaw can "dream" — reviewing traces, extracting patterns, and promoting them to skills. This is the LLMunix evolution loop:
+
+1. **Operate**: Execute goals, accumulate traces
+2. **Dream**: Review traces, identify patterns
+3. **Promote**: Convert confirmed patterns to skills
+4. **Evolve**: Skills improve future operation
+
+This is not yet implemented in RoClaw V1. The infrastructure (directory structure, file format conventions) is in place for future development.

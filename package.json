@@ -1,0 +1,35 @@
+{
+  "name": "roclaw",
+  "version": "0.1.0",
+  "description": "The Physical Embodiment for OpenClaw — Dual-Brain Bytecode Robot",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "jest --no-coverage",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "robot",
+    "openclaw",
+    "llm",
+    "esp32",
+    "bytecode",
+    "dual-brain"
+  ],
+  "author": "EvolvingAgentsLabs",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.13.4",
+    "@types/ws": "^8.5.14",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
