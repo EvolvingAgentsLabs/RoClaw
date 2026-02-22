@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/RoClaw.png" alt="RoClaw Logo" width="280">
+</p>
+
 # RoClaw
 
 **The Physical Embodiment for OpenClaw**
@@ -86,6 +90,12 @@ npm test                # Run test suite
 ## The Robot
 
 A 20cm 3D-printed cube with two stepper motors and a camera.
+
+<p align="center">
+  <img src="assets/image1.jpeg" alt="Base with motors and wheels" width="250">
+  <img src="assets/image2.jpeg" alt="Components and workbench" width="250">
+  <img src="assets/image3.jpeg" alt="Assembled chassis with camera window" width="250">
+</p>
 
 | Component | Spec |
 |-----------|------|
