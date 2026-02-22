@@ -21,7 +21,7 @@ graph TD
     COMPILE -->|"AA 01 64 64 CB FF"| ESP[ESP32-S3 Steppers]
     ESP -->|"Robot moves"| WORLD((Physical World))
     CEREBELLUM -->|"Experience trace"| MEMORY[3. LLMunix Memory]
-    MEMORY -->|"Learned skills"| CEREBELLUM
+    MEMORY -.->|"Learned skills (Phase 2)"| CORTEX
 ```
 
 ### The Trinity
@@ -89,7 +89,7 @@ A 20cm 3D-printed cube with two stepper motors and a camera.
 
 | Component | Spec |
 |-----------|------|
-| Chassis | 20cm cube, PLA (<200 mg print) |
+| Chassis | 20cm cube, PLA (<200g print) |
 | Motors | 2x 28BYJ-48 (4096 steps/rev) |
 | Wheels | 6cm diameter |
 | Camera | ESP32-CAM, 320x240 @ 10fps |

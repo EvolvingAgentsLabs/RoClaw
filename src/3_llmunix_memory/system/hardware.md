@@ -3,7 +3,7 @@
 ## Chassis
 - Form factor: 20cm x 20cm cube
 - Material: 3D-printed PLA
-- 3D print weight: <200 mg
+- 3D print weight: <200g
 
 ## Motors
 - Type: 28BYJ-48 stepper motors (x2)
