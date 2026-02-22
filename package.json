@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
+    "sim": "tsx src/virtual_roclaw.ts",
     "test": "jest --no-coverage",
     "type-check": "tsc --noEmit"
   },
