@@ -10,6 +10,7 @@ import { BytecodeCompiler, Opcode, formatHex } from '../2_qwen_cerebellum/byteco
 import { UDPTransmitter } from '../2_qwen_cerebellum/udp_transmitter';
 import { VisionLoop } from '../2_qwen_cerebellum/vision_loop';
 import type { InferenceFunction } from '../2_qwen_cerebellum/inference';
+import { MemoryManager } from '../3_llmunix_memory/memory_manager';
 
 // =============================================================================
 // Types
@@ -28,19 +29,32 @@ export interface ToolContext {
   infer: InferenceFunction;
 }
 
+// Module-level singleton — avoids changing ToolContext interface
+const memoryManager = new MemoryManager();
+
+/** Exposed for testing — allows injecting a mock MemoryManager */
+export function _getMemoryManager(): MemoryManager {
+  return memoryManager;
+}
+
 // =============================================================================
 // Tool Definitions
 // =============================================================================
 
 export const TOOL_DEFINITIONS = [
   {
+    name: 'robot.read_memory',
+    description: 'Read the robot\'s memory (hardware profile, identity, skills, recent traces). Use this to understand physical capabilities and distill constraints before issuing movement commands.',
+  },
+  {
     name: 'robot.explore',
     description: 'Start exploring the environment, avoiding obstacles',
+    parameters: { constraints: 'string (optional)' },
   },
   {
     name: 'robot.go_to',
     description: 'Navigate to a described location (e.g., "the kitchen", "the door")',
-    parameters: { location: 'string' },
+    parameters: { location: 'string', constraints: 'string (optional)' },
   },
   {
     name: 'robot.describe_scene',
@@ -68,11 +82,14 @@ export async function handleTool(
   ctx: ToolContext,
 ): Promise<ToolResult> {
   switch (toolName) {
+    case 'robot.read_memory':
+      return handleReadMemory();
+
     case 'robot.explore':
-      return handleExplore(ctx);
+      return handleExplore(ctx, args.constraints as string | undefined);
 
     case 'robot.go_to':
-      return handleGoTo(args.location as string, ctx);
+      return handleGoTo(args.location as string, ctx, args.constraints as string | undefined);
 
     case 'robot.describe_scene':
       return handleDescribeScene(ctx);
@@ -92,11 +109,25 @@ export async function handleTool(
 // Individual handlers
 // ---------------------------------------------------------------------------
 
-async function handleExplore(ctx: ToolContext): Promise<ToolResult> {
-  logger.info('Tools', 'robot.explore invoked');
+async function handleReadMemory(): Promise<ToolResult> {
+  logger.info('Tools', 'robot.read_memory invoked');
+
+  const content = memoryManager.getFullContext();
+  return {
+    success: true,
+    message: content || 'No memory files found.',
+    data: { type: 'memory' },
+  };
+}
+
+async function handleExplore(ctx: ToolContext, constraints?: string): Promise<ToolResult> {
+  logger.info('Tools', 'robot.explore invoked', constraints ? { constraints } : undefined);
+
+  const baseGoal = 'Explore the environment. Move forward when the path is clear. Turn to avoid obstacles. Look for interesting objects.';
+  const goal = constraints ? `${baseGoal}\nConstraints: ${constraints}` : baseGoal;
 
   try {
-    await ctx.visionLoop.start('Explore the environment. Move forward when the path is clear. Turn to avoid obstacles. Look for interesting objects.');
+    await ctx.visionLoop.start(goal);
     return {
       success: true,
       message: 'Exploration started. The robot is now autonomously navigating.',
@@ -109,17 +140,18 @@ async function handleExplore(ctx: ToolContext): Promise<ToolResult> {
   }
 }
 
-async function handleGoTo(location: string, ctx: ToolContext): Promise<ToolResult> {
+async function handleGoTo(location: string, ctx: ToolContext, constraints?: string): Promise<ToolResult> {
   if (!location) {
     return { success: false, message: 'No location specified' };
   }
 
-  logger.info('Tools', `robot.go_to: ${location}`);
+  logger.info('Tools', `robot.go_to: ${location}`, constraints ? { constraints } : undefined);
+
+  const baseGoal = `Navigate to: ${location}. Look for visual cues that indicate this location. Move toward it. Stop when you arrive.`;
+  const goal = constraints ? `${baseGoal}\nConstraints: ${constraints}` : baseGoal;
 
   try {
-    await ctx.visionLoop.start(
-      `Navigate to: ${location}. Look for visual cues that indicate this location. Move toward it. Stop when you arrive.`
-    );
+    await ctx.visionLoop.start(goal);
     return {
       success: true,
       message: `Navigation started toward "${location}".`,

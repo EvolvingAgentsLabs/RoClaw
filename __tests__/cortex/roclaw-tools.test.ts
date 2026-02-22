@@ -49,6 +49,20 @@ describe('RoClaw Tools', () => {
   });
 
   // ===========================================================================
+  // robot.read_memory
+  // ===========================================================================
+
+  describe('robot.read_memory', () => {
+    test('returns memory content with data.type === memory', async () => {
+      const result = await handleTool('robot.read_memory', {}, ctx);
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ type: 'memory' });
+      expect(result.message).toContain('Hardware');
+      expect(result.message).toContain('RoClaw');
+    });
+  });
+
+  // ===========================================================================
   // robot.explore
   // ===========================================================================
 
@@ -59,6 +73,18 @@ describe('RoClaw Tools', () => {
       expect(mockVisionLoopStart).toHaveBeenCalledWith(
         expect.stringContaining('Explore'),
       );
+    });
+
+    test('appends constraints to goal when provided', async () => {
+      const result = await handleTool(
+        'robot.explore',
+        { constraints: 'Max speed 4.7 cm/s. Stay centered.' },
+        ctx,
+      );
+      expect(result.success).toBe(true);
+      const goal = mockVisionLoopStart.mock.calls[0][0] as string;
+      expect(goal).toContain('Constraints: Max speed 4.7 cm/s. Stay centered.');
+      expect(goal).toContain('Explore');
     });
 
     test('returns failure on error', async () => {
@@ -80,6 +106,18 @@ describe('RoClaw Tools', () => {
       expect(mockVisionLoopStart).toHaveBeenCalledWith(
         expect.stringContaining('kitchen'),
       );
+    });
+
+    test('appends constraints to navigation goal', async () => {
+      const result = await handleTool(
+        'robot.go_to',
+        { location: 'the door', constraints: '20cm wide. Scan before turning.' },
+        ctx,
+      );
+      expect(result.success).toBe(true);
+      const goal = mockVisionLoopStart.mock.calls[0][0] as string;
+      expect(goal).toContain('the door');
+      expect(goal).toContain('Constraints: 20cm wide. Scan before turning.');
     });
 
     test('fails without location', async () => {

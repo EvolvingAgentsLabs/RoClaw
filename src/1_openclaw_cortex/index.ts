@@ -106,7 +106,7 @@ export class CortexNode {
           metadata: {
             type: 'robot',
             hardware: 'RoClaw V1',
-            description: '8cm cube robot with camera and differential drive',
+            description: '20cm cube robot with camera and differential drive',
           },
         });
 
