@@ -108,6 +108,13 @@ describe('RoClaw Tools', () => {
       );
     });
 
+    test('includes semantic exploration context when no prior memory', async () => {
+      const result = await handleTool('robot.go_to', { location: 'the kitchen' }, ctx);
+      expect(result.success).toBe(true);
+      const goal = mockVisionLoopStart.mock.calls[0][0] as string;
+      expect(goal).toContain('No prior memory');
+    });
+
     test('appends constraints to navigation goal', async () => {
       const result = await handleTool(
         'robot.go_to',
@@ -186,6 +193,47 @@ describe('RoClaw Tools', () => {
       const result = await handleTool('robot.status', {}, ctx);
       expect(result.success).toBe(false);
       expect(result.message).toContain('timeout');
+    });
+  });
+
+  // ===========================================================================
+  // robot.record_observation
+  // ===========================================================================
+
+  describe('robot.record_observation', () => {
+    test('records observation using pose from status query', async () => {
+      const result = await handleTool('robot.record_observation', { label: 'kitchen' }, ctx);
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('kitchen');
+      expect(result.message).toContain('Recorded');
+      expect(mockTransmitterSendAndReceive).toHaveBeenCalled();
+    });
+
+    test('records at origin when pose unavailable', async () => {
+      mockTransmitterSendAndReceive.mockRejectedValue(new Error('timeout'));
+      const result = await handleTool('robot.record_observation', { label: 'hallway' }, ctx);
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('hallway');
+      expect(result.message).toContain('origin');
+    });
+
+    test('fails without label', async () => {
+      const result = await handleTool('robot.record_observation', {}, ctx);
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('No observation label');
+    });
+  });
+
+  // ===========================================================================
+  // robot.get_map
+  // ===========================================================================
+
+  describe('robot.get_map', () => {
+    test('returns semantic map summary', async () => {
+      const result = await handleTool('robot.get_map', {}, ctx);
+      expect(result.success).toBe(true);
+      expect(result.data).toHaveProperty('entryCount');
+      expect(result.data).toHaveProperty('entries');
     });
   });
 

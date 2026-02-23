@@ -36,6 +36,9 @@ const config = {
   cameraHost: process.env.ESP32_CAM_HOST || '192.168.1.101',
   cameraPort: parseInt(process.env.ESP32_CAM_PORT || '80', 10),
 
+  // Vision Loop
+  frameHistorySize: parseInt(process.env.FRAME_HISTORY_SIZE || '4', 10),
+
   // Inference
   apiKey: process.env.OPENROUTER_API_KEY || '',
   model: process.env.QWEN_MODEL || 'qwen/qwen-2.5-vl-72b-instruct',
@@ -78,15 +81,15 @@ async function main(): Promise<void> {
   const infer = inference.createInferenceFunction();
   logger.info('RoClaw', `Inference: ${config.localInferenceUrl ? 'local' : 'OpenRouter'} (${config.model})`);
 
-  // 4. Initialize vision loop
+  // 4. Initialize vision loop (rolling video buffer for temporal/3D perception)
   const cameraUrl = `http://${config.cameraHost}:${config.cameraPort}/stream`;
   const visionLoop = new VisionLoop(
-    { cameraUrl, targetFPS: 2 },
+    { cameraUrl, targetFPS: 2, frameHistorySize: config.frameHistorySize },
     compiler,
     transmitter,
     infer,
   );
-  logger.info('RoClaw', `Vision loop → ${cameraUrl}`);
+  logger.info('RoClaw', `Vision loop → ${cameraUrl} (${config.frameHistorySize}-frame video buffer)`);
 
   // 5. Build tool context
   const toolContext: ToolContext = {

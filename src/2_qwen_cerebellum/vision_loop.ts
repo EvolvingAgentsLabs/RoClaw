@@ -30,7 +30,7 @@ export interface VisionLoopConfig {
   autoReconnect: boolean;
   /** Reconnect delay in ms (default: 2000) */
   reconnectDelayMs: number;
-  /** Number of recent frames to send for temporal context (default: 3) */
+  /** Number of recent frames to send for temporal context (default: 4) */
   frameHistorySize: number;
 }
 
@@ -50,7 +50,7 @@ const DEFAULT_CONFIG: VisionLoopConfig = {
   connectTimeoutMs: 5000,
   autoReconnect: true,
   reconnectDelayMs: 2000,
-  frameHistorySize: 3,
+  frameHistorySize: 4,
 };
 
 // =============================================================================
@@ -153,7 +153,7 @@ export class VisionLoop extends EventEmitter {
     const systemPrompt = this.compiler.getSystemPrompt(this.currentGoal);
     const frames = history ?? [frameBase64];
     const userMessage = frames.length > 1
-      ? `These are the last ${frames.length} camera frames showing your trajectory (oldest first). Output the next motor command.`
+      ? `This is a video of the last ${frames.length} frames of movement (oldest→newest). The goal is: ${this.currentGoal}. Use the visual differences between frames to gauge your velocity and 3D surroundings. Output the next 6-byte motor command.`
       : 'What do you see? Output the next motor command.';
 
     try {
@@ -367,7 +367,7 @@ export class VisionLoop extends EventEmitter {
       const systemPrompt = this.compiler.getSystemPrompt(this.currentGoal);
       const frameCount = this.frameHistory.length;
       const userMessage = frameCount > 1
-        ? `These are the last ${frameCount} camera frames showing your trajectory (oldest first). Output the next motor command.`
+        ? `This is a video of the last ${frameCount} frames of movement (oldest→newest). The goal is: ${this.currentGoal}. Use the visual differences between frames to gauge your velocity and 3D surroundings. Output the next 6-byte motor command.`
         : 'What do you see? Output the next motor command.';
 
       const vlmOutput = await this.infer(systemPrompt, userMessage, [...this.frameHistory]);
