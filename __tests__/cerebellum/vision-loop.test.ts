@@ -178,7 +178,7 @@ describe('VisionLoop', () => {
 
     expect(mockInfer).toHaveBeenCalledWith(
       expect.stringContaining('robot motor controller'),
-      expect.stringContaining('last 3 camera frames'),
+      expect.stringContaining('last 3 frames of movement'),
       ['frame1', 'frame2', 'frame3'],
     );
   });

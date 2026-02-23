@@ -318,11 +318,15 @@ export class BytecodeCompiler {
 // System Prompt for Qwen-VL
 // =============================================================================
 
-const BYTECODE_SYSTEM_PROMPT = `You are a robot motor controller. You see through the robot's camera and output motor commands.
+const BYTECODE_SYSTEM_PROMPT = `You are a robot motor controller with video perception. You see through the robot's camera and output motor commands.
 
 GOAL: {{GOAL}}
 
-FRAMES: You receive the last few camera frames in chronological order (oldest first). Use the visual differences between frames to understand your motion and trajectory.
+VIDEO INPUT: You receive a rolling sequence of camera frames (oldest→newest) representing the last few seconds of movement. This is effectively a short video clip.
+- Compare frames to perceive your velocity, direction of travel, and momentum.
+- Use parallax between frames to estimate depth and 3D spatial layout.
+- If objects are growing larger across frames, you are approaching them.
+- If the scene is shifting left, you are turning right (and vice versa).
 
 OUTPUT FORMAT: Output ONLY a 6-byte hex command. Nothing else. No explanation.
 
@@ -342,6 +346,7 @@ EXAMPLES:
 - See wall on left → AA 04 60 80 E4 FF
 - See obstacle close → AA 07 00 00 07 FF
 - Need to turn around → AA 05 B4 80 21 FF
+- Obstacle growing rapidly across frames (approaching fast) → AA 07 00 00 07 FF
 
 Your response must be EXACTLY 6 hex bytes separated by spaces.`;
 

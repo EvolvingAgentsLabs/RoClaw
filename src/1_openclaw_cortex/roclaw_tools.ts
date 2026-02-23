@@ -11,6 +11,7 @@ import { UDPTransmitter } from '../2_qwen_cerebellum/udp_transmitter';
 import { VisionLoop } from '../2_qwen_cerebellum/vision_loop';
 import type { InferenceFunction } from '../2_qwen_cerebellum/inference';
 import { MemoryManager } from '../3_llmunix_memory/memory_manager';
+import { SemanticMap } from '../3_llmunix_memory/semantic_map';
 
 // =============================================================================
 // Types
@@ -29,12 +30,18 @@ export interface ToolContext {
   infer: InferenceFunction;
 }
 
-// Module-level singleton — avoids changing ToolContext interface
+// Module-level singletons — avoids changing ToolContext interface
 const memoryManager = new MemoryManager();
+const semanticMap = new SemanticMap();
 
 /** Exposed for testing — allows injecting a mock MemoryManager */
 export function _getMemoryManager(): MemoryManager {
   return memoryManager;
+}
+
+/** Exposed for testing — allows accessing the SemanticMap */
+export function _getSemanticMap(): SemanticMap {
+  return semanticMap;
 }
 
 // =============================================================================
@@ -68,6 +75,15 @@ export const TOOL_DEFINITIONS = [
     name: 'robot.status',
     description: 'Get current robot status (pose, motor state, battery)',
   },
+  {
+    name: 'robot.record_observation',
+    description: 'Record what the robot sees at its current pose to build a semantic map. Call this when the robot identifies a notable location (kitchen, door, hallway, etc.)',
+    parameters: { label: 'string', confidence: 'number (optional, 0-1)' },
+  },
+  {
+    name: 'robot.get_map',
+    description: 'Get the robot\'s semantic map of known locations and their coordinates',
+  },
 ] as const;
 
 export type ToolName = typeof TOOL_DEFINITIONS[number]['name'];
@@ -99,6 +115,12 @@ export async function handleTool(
 
     case 'robot.status':
       return handleStatus(ctx);
+
+    case 'robot.record_observation':
+      return handleRecordObservation(args.label as string, ctx, args.confidence as number | undefined);
+
+    case 'robot.get_map':
+      return handleGetMap();
 
     default:
       return { success: false, message: `Unknown tool: ${toolName}` };
@@ -147,14 +169,28 @@ async function handleGoTo(location: string, ctx: ToolContext, constraints?: stri
 
   logger.info('Tools', `robot.go_to: ${location}`, constraints ? { constraints } : undefined);
 
-  const baseGoal = `Navigate to: ${location}. Look for visual cues that indicate this location. Move toward it. Stop when you arrive.`;
+  // Check the semantic map for a known location
+  const knownLocation = semanticMap.findNearest(location);
+  let baseGoal: string;
+  let navHint = '';
+
+  if (knownLocation) {
+    const { x, y, heading } = knownLocation.pose;
+    navHint = ` (Previously seen "${knownLocation.label}" near pose [${x.toFixed(1)}, ${y.toFixed(1)}], heading ${heading.toFixed(0)}°)`;
+    baseGoal = `Navigate to: ${location}. Known location from memory: "${knownLocation.label}" was seen at coordinates (${x.toFixed(1)}, ${y.toFixed(1)}). Head toward those coordinates. Use visual cues to confirm arrival. Stop when you arrive.`;
+    logger.info('Tools', `Semantic map hit: "${knownLocation.label}" at (${x.toFixed(1)}, ${y.toFixed(1)})`);
+  } else {
+    baseGoal = `Navigate to: ${location}. No prior memory of this location. Explore and look for visual cues that indicate this location. Move toward it. Stop when you arrive.`;
+    logger.info('Tools', `No semantic map entry for "${location}", exploring`);
+  }
+
   const goal = constraints ? `${baseGoal}\nConstraints: ${constraints}` : baseGoal;
 
   try {
     await ctx.visionLoop.start(goal);
     return {
       success: true,
-      message: `Navigation started toward "${location}".`,
+      message: `Navigation started toward "${location}".${navHint}`,
     };
   } catch (error) {
     return {
@@ -212,6 +248,58 @@ async function handleStop(ctx: ToolContext): Promise<ToolResult> {
       message: `Failed to stop: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
+}
+
+async function handleRecordObservation(label: string, ctx: ToolContext, confidence?: number): Promise<ToolResult> {
+  if (!label) {
+    return { success: false, message: 'No observation label specified' };
+  }
+
+  logger.info('Tools', `robot.record_observation: "${label}"`);
+
+  try {
+    // Get current pose from the ESP32-S3
+    const statusFrame = ctx.compiler.createFrame(Opcode.GET_STATUS);
+    const response = await ctx.transmitter.sendAndReceive(statusFrame, 2000);
+    const status = JSON.parse(response.toString());
+
+    const pose = {
+      x: status.pose?.x ?? 0,
+      y: status.pose?.y ?? 0,
+      heading: (status.pose?.h ?? 0) * 180 / Math.PI,
+    };
+
+    semanticMap.record(label, pose, confidence);
+
+    return {
+      success: true,
+      message: `Recorded "${label}" at pose (${pose.x.toFixed(1)}, ${pose.y.toFixed(1)}), heading ${pose.heading.toFixed(0)}°`,
+      data: { label, pose },
+    };
+  } catch (error) {
+    // If we can't get the pose, record at origin
+    logger.warn('Tools', 'Could not get pose for observation, recording at (0,0)');
+    semanticMap.record(label, { x: 0, y: 0, heading: 0 }, confidence);
+
+    return {
+      success: true,
+      message: `Recorded "${label}" (pose unavailable, stored at origin)`,
+      data: { label, pose: { x: 0, y: 0, heading: 0 } },
+    };
+  }
+}
+
+async function handleGetMap(): Promise<ToolResult> {
+  logger.info('Tools', 'robot.get_map invoked');
+
+  const summary = semanticMap.getSummary();
+  const entries = semanticMap.getAll();
+
+  return {
+    success: true,
+    message: summary,
+    data: { entryCount: entries.length, entries },
+  };
 }
 
 async function handleStatus(ctx: ToolContext): Promise<ToolResult> {
