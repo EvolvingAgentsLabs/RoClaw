@@ -1,22 +1,22 @@
 /**
- * RoClaw Semantic Map — Topological memory linking poses to observations
+ * Semantic Map — Topological Memory for Location-Aware Navigation
  *
- * As the robot moves, the vision loop records what it sees at each pose.
- * This builds a semantic/topological map: "At pose [X, Y], I saw a kitchen."
+ * Two layers:
+ *   1. PoseMap: Simple pose→label store (persisted to JSON file).
+ *      Used by the vision loop to record observations on the fly.
  *
- * When the Cortex issues a "go_to" command, the semantic map is queried
- * for the nearest known observation matching the target, providing
- * coordinates instead of blind exploration.
- *
- * Storage: JSON file in the traces/ directory, persists across sessions.
+ *   2. SemanticMap: VLM-powered topological graph for Navigation Chain of Thought.
+ *      Nodes are locations identified by visual features; edges are navigation paths.
+ *      Uses VLM inference for scene analysis, location matching, and navigation planning.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+import type { InferenceFunction } from '../2_qwen_cerebellum/inference';
 import { logger } from '../shared/logger';
 
 // =============================================================================
-// Types
+// Types — PoseMap (simple pose→label storage)
 // =============================================================================
 
 export interface Pose {
@@ -37,12 +37,150 @@ export interface SemanticMapEntry {
 }
 
 // =============================================================================
-// SemanticMap
+// Types — SemanticMap (VLM-powered topological graph)
+// =============================================================================
+
+export interface SemanticNode {
+  id: string;
+  label: string;
+  description: string;
+  features: string[];
+  navigationHints: string[];
+  visitCount: number;
+  firstVisited: number;
+  lastVisited: number;
+  position?: { x: number; y: number; heading: number };
+}
+
+export interface SemanticEdge {
+  from: string;
+  to: string;
+  action: string;
+  estimatedSteps: number;
+  traversalCount: number;
+  lastTraversed: number;
+}
+
+export interface SceneAnalysis {
+  locationLabel: string;
+  description: string;
+  features: string[];
+  navigationHints: string[];
+  confidence: number;
+}
+
+export interface NavigationDecision {
+  action: string;
+  reasoning: string;
+  confidence: number;
+  motorCommand: string;
+}
+
+export interface LocationMatch {
+  isSameLocation: boolean;
+  confidence: number;
+  reasoning: string;
+}
+
+// =============================================================================
+// Prompts
+// =============================================================================
+
+const SCENE_ANALYSIS_SYSTEM = `You are a robot's spatial perception system. You analyze scenes and output structured JSON.
+
+You will receive a text description of what the robot's camera currently sees.
+Analyze the scene and identify:
+1. What type of location/room this is
+2. Key visual features that identify this location
+3. Visible exits, doors, or navigable paths
+
+Output ONLY valid JSON (no markdown, no explanation) in this format:
+{
+  "locationLabel": "kitchen",
+  "description": "A small kitchen with white cabinets and a gas stove",
+  "features": ["white cabinets", "gas stove", "tile floor", "window above sink"],
+  "navigationHints": ["doorway to the left leads to hallway", "open passage ahead"],
+  "confidence": 0.85
+}`;
+
+const LOCATION_MATCH_SYSTEM = `You are a robot's place recognition system. You compare two scene descriptions and determine if they are the same physical location.
+
+Consider that the robot may be viewing the same location from a different angle or at a different time.
+Focus on permanent structural features (walls, doors, furniture) rather than transient details.
+
+Output ONLY valid JSON (no markdown, no explanation):
+{
+  "isSameLocation": true,
+  "confidence": 0.9,
+  "reasoning": "Both scenes show the same kitchen with white cabinets and gas stove"
+}`;
+
+const NAVIGATION_SYSTEM = `You are a robot's navigation planner. Given the robot's current scene, its known map of locations, and a target destination, decide the best motor action.
+
+The robot uses a 6-byte bytecode ISA:
+- FORWARD LL RR: Move forward (left speed, right speed, 0-255)
+- TURN_LEFT LL RR: Differential left turn
+- TURN_RIGHT LL RR: Differential right turn
+- STOP: Stop motors
+
+Output ONLY valid JSON (no markdown, no explanation):
+{
+  "action": "TURN_LEFT 100 180",
+  "reasoning": "The hallway leading to the kitchen is to the left",
+  "confidence": 0.75,
+  "motorCommand": "TURN_LEFT 100 180"
+}`;
+
+// =============================================================================
+// JSON Parsing (handles <think> tags from reasoning models)
+// =============================================================================
+
+export function extractJSON(text: string): string {
+  // Strip <think>...</think> blocks (reasoning models)
+  let cleaned = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+  // Strip markdown code fences
+  cleaned = cleaned.replace(/^```(?:json)?\s*\n?/gm, '').replace(/\n?```\s*$/gm, '').trim();
+
+  // Find first { ... } or [ ... ] block
+  const jsonStart = cleaned.indexOf('{');
+  const arrayStart = cleaned.indexOf('[');
+  const start = jsonStart >= 0 && (arrayStart < 0 || jsonStart < arrayStart)
+    ? jsonStart : arrayStart;
+
+  if (start < 0) return cleaned;
+
+  const openChar = cleaned[start];
+  const closeChar = openChar === '{' ? '}' : ']';
+  let depth = 0;
+
+  for (let i = start; i < cleaned.length; i++) {
+    if (cleaned[i] === openChar) depth++;
+    if (cleaned[i] === closeChar) depth--;
+    if (depth === 0) return cleaned.slice(start, i + 1);
+  }
+
+  return cleaned.slice(start);
+}
+
+function parseJSONSafe<T>(text: string): T | null {
+  try {
+    return JSON.parse(extractJSON(text)) as T;
+  } catch {
+    logger.warn('SemanticMap', 'Failed to parse JSON from VLM response', {
+      preview: text.slice(0, 200),
+    });
+    return null;
+  }
+}
+
+// =============================================================================
+// PoseMap — Simple pose→label storage (persisted to JSON)
 // =============================================================================
 
 const MAP_FILE = path.join(__dirname, 'traces', 'semantic_map.json');
 
-export class SemanticMap {
+export class PoseMap {
   private entries: SemanticMapEntry[] = [];
 
   constructor() {
@@ -79,7 +217,7 @@ export class SemanticMap {
     }
 
     this.save();
-    logger.debug('SemanticMap', `Recorded "${normalized}" at (${pose.x.toFixed(1)}, ${pose.y.toFixed(1)})`);
+    logger.debug('PoseMap', `Recorded "${normalized}" at (${pose.x.toFixed(1)}, ${pose.y.toFixed(1)})`);
   }
 
   /**
@@ -160,7 +298,7 @@ export class SemanticMap {
         this.entries = JSON.parse(raw);
       }
     } catch {
-      logger.warn('SemanticMap', 'Failed to load semantic map, starting fresh');
+      logger.warn('PoseMap', 'Failed to load semantic map, starting fresh');
       this.entries = [];
     }
   }
@@ -173,9 +311,309 @@ export class SemanticMap {
       }
       fs.writeFileSync(MAP_FILE, JSON.stringify(this.entries, null, 2));
     } catch (err) {
-      logger.error('SemanticMap', 'Failed to save semantic map', {
+      logger.error('PoseMap', 'Failed to save semantic map', {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+}
+
+// =============================================================================
+// SemanticMap — VLM-powered topological graph (Navigation Chain of Thought)
+// =============================================================================
+
+export class SemanticMap {
+  private nodes: Map<string, SemanticNode> = new Map();
+  private edges: SemanticEdge[] = [];
+  private infer: InferenceFunction;
+  private nextId = 0;
+  private currentNodeId: string | null = null;
+
+  constructor(inferFn: InferenceFunction) {
+    this.infer = inferFn;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Scene Analysis
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Analyze a scene description and return structured location data.
+   * Works with both text descriptions (simulated) and image-based inference.
+   */
+  async analyzeScene(sceneDescription: string): Promise<SceneAnalysis | null> {
+    const response = await this.infer(
+      SCENE_ANALYSIS_SYSTEM,
+      `The robot's camera currently sees:\n\n${sceneDescription}`,
+    );
+
+    return parseJSONSafe<SceneAnalysis>(response);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Location Matching
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Determine if a new scene matches an existing node in the map.
+   */
+  async matchLocation(
+    newScene: SceneAnalysis,
+    candidate: SemanticNode,
+  ): Promise<LocationMatch | null> {
+    const prompt = [
+      'Scene A (new observation):',
+      `  Label: ${newScene.locationLabel}`,
+      `  Description: ${newScene.description}`,
+      `  Features: ${newScene.features.join(', ')}`,
+      '',
+      'Scene B (known location):',
+      `  Label: ${candidate.label}`,
+      `  Description: ${candidate.description}`,
+      `  Features: ${candidate.features.join(', ')}`,
+      '',
+      'Are Scene A and Scene B the same physical location?',
+    ].join('\n');
+
+    const response = await this.infer(LOCATION_MATCH_SYSTEM, prompt);
+    return parseJSONSafe<LocationMatch>(response);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Map Building
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Process a new scene: analyze it, match or create a node, and link edges.
+   * Returns the node ID for the current location.
+   */
+  async processScene(
+    sceneDescription: string,
+    pose?: { x: number; y: number; heading: number },
+    actionTaken?: string,
+  ): Promise<{ nodeId: string; isNew: boolean; analysis: SceneAnalysis }> {
+    const analysis = await this.analyzeScene(sceneDescription);
+    if (!analysis) {
+      throw new Error('Failed to analyze scene');
+    }
+
+    // Try to match against existing nodes
+    let bestMatch: { nodeId: string; confidence: number } | null = null;
+
+    for (const [id, node] of this.nodes) {
+      const match = await this.matchLocation(analysis, node);
+      if (match && match.isSameLocation && match.confidence > 0.6) {
+        if (!bestMatch || match.confidence > bestMatch.confidence) {
+          bestMatch = { nodeId: id, confidence: match.confidence };
+        }
+      }
+    }
+
+    const now = Date.now();
+    let nodeId: string;
+    let isNew: boolean;
+
+    if (bestMatch) {
+      // Update existing node
+      nodeId = bestMatch.nodeId;
+      isNew = false;
+      const node = this.nodes.get(nodeId)!;
+      node.visitCount++;
+      node.lastVisited = now;
+      if (pose) node.position = pose;
+    } else {
+      // Create new node
+      nodeId = `loc_${this.nextId++}`;
+      isNew = true;
+      this.nodes.set(nodeId, {
+        id: nodeId,
+        label: analysis.locationLabel,
+        description: analysis.description,
+        features: analysis.features,
+        navigationHints: analysis.navigationHints,
+        visitCount: 1,
+        firstVisited: now,
+        lastVisited: now,
+        position: pose,
+      });
+    }
+
+    // Create edge from previous location
+    if (this.currentNodeId && this.currentNodeId !== nodeId && actionTaken) {
+      this.addEdge(this.currentNodeId, nodeId, actionTaken);
+    }
+
+    this.currentNodeId = nodeId;
+    return { nodeId, isNew, analysis };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Navigation Planning
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Given the current scene and a target location label, decide the next action.
+   */
+  async planNavigation(
+    currentScene: string,
+    targetLabel: string,
+  ): Promise<NavigationDecision | null> {
+    const mapSummary = this.getMapSummary();
+    const prompt = [
+      `Current scene: ${currentScene}`,
+      '',
+      `Target destination: ${targetLabel}`,
+      '',
+      'Known map:',
+      mapSummary,
+      '',
+      'What motor action should the robot take to navigate toward the target?',
+    ].join('\n');
+
+    const response = await this.infer(NAVIGATION_SYSTEM, prompt);
+    return parseJSONSafe<NavigationDecision>(response);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Graph Queries
+  // ---------------------------------------------------------------------------
+
+  getNode(id: string): SemanticNode | undefined {
+    return this.nodes.get(id);
+  }
+
+  getAllNodes(): SemanticNode[] {
+    return Array.from(this.nodes.values());
+  }
+
+  getEdges(): SemanticEdge[] {
+    return [...this.edges];
+  }
+
+  getEdgesFrom(nodeId: string): SemanticEdge[] {
+    return this.edges.filter(e => e.from === nodeId);
+  }
+
+  getEdgesTo(nodeId: string): SemanticEdge[] {
+    return this.edges.filter(e => e.to === nodeId);
+  }
+
+  getNeighbors(nodeId: string): string[] {
+    const neighbors = new Set<string>();
+    for (const edge of this.edges) {
+      if (edge.from === nodeId) neighbors.add(edge.to);
+      if (edge.to === nodeId) neighbors.add(edge.from);
+    }
+    return Array.from(neighbors);
+  }
+
+  getCurrentNodeId(): string | null {
+    return this.currentNodeId;
+  }
+
+  findNodeByLabel(label: string): SemanticNode | undefined {
+    const lower = label.toLowerCase();
+    for (const node of this.nodes.values()) {
+      if (node.label.toLowerCase().includes(lower)) return node;
+    }
+    return undefined;
+  }
+
+  /**
+   * BFS shortest path between two nodes.
+   */
+  findPath(fromId: string, toId: string): string[] | null {
+    if (fromId === toId) return [fromId];
+    if (!this.nodes.has(fromId) || !this.nodes.has(toId)) return null;
+
+    const visited = new Set<string>();
+    const queue: Array<{ id: string; path: string[] }> = [{ id: fromId, path: [fromId] }];
+    visited.add(fromId);
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const neighbor of this.getNeighbors(current.id)) {
+        if (neighbor === toId) return [...current.path, neighbor];
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          queue.push({ id: neighbor, path: [...current.path, neighbor] });
+        }
+      }
+    }
+
+    return null;
+  }
+
+  getMapSummary(): string {
+    if (this.nodes.size === 0) return '(empty map)';
+
+    const lines: string[] = [];
+    lines.push(`Locations (${this.nodes.size}):`);
+    for (const node of this.nodes.values()) {
+      const exits = this.getEdgesFrom(node.id)
+        .map(e => this.nodes.get(e.to)?.label || e.to)
+        .join(', ');
+      lines.push(`  - ${node.label} [${node.id}]: ${node.description}`);
+      if (node.navigationHints.length > 0) {
+        lines.push(`    Exits: ${node.navigationHints.join('; ')}`);
+      }
+      if (exits) {
+        lines.push(`    Connected to: ${exits}`);
+      }
+    }
+    return lines.join('\n');
+  }
+
+  getStats() {
+    return {
+      nodeCount: this.nodes.size,
+      edgeCount: this.edges.length,
+      currentNodeId: this.currentNodeId,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Serialization (for LLMunix memory persistence)
+  // ---------------------------------------------------------------------------
+
+  toJSON(): { nodes: SemanticNode[]; edges: SemanticEdge[] } {
+    return {
+      nodes: Array.from(this.nodes.values()),
+      edges: this.edges,
+    };
+  }
+
+  loadFromJSON(data: { nodes: SemanticNode[]; edges: SemanticEdge[] }): void {
+    this.nodes.clear();
+    this.edges = [];
+    for (const node of data.nodes) {
+      this.nodes.set(node.id, node);
+      const idNum = parseInt(node.id.replace('loc_', ''), 10);
+      if (!isNaN(idNum) && idNum >= this.nextId) this.nextId = idNum + 1;
+    }
+    this.edges = data.edges;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private
+  // ---------------------------------------------------------------------------
+
+  private addEdge(fromId: string, toId: string, action: string, steps = 0): void {
+    // Check if edge already exists
+    const existing = this.edges.find(e => e.from === fromId && e.to === toId);
+    if (existing) {
+      existing.traversalCount++;
+      existing.lastTraversed = Date.now();
+      return;
+    }
+
+    this.edges.push({
+      from: fromId,
+      to: toId,
+      action,
+      estimatedSteps: steps,
+      traversalCount: 1,
+      lastTraversed: Date.now(),
+    });
   }
 }

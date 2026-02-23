@@ -36,6 +36,48 @@ graph TD
 | **[LLMunix](https://github.com/EvolvingAgentsLabs/llmunix-starter)** | Memory & evolution engine | Hippocampus | Persistent |
 | **RoClaw** | Physical robot body | Cerebellum | Sub-second |
 
+## Navigation Chain of Thought
+
+RoClaw introduces a **Chain of Thought for Robot Navigation** — a structured reasoning pipeline where a VLM reasons step-by-step through spatial understanding, just like LLM chain-of-thought works for text reasoning, but grounded in the physical world.
+
+```mermaid
+graph LR
+    S["What do I see?"] -->|Scene Analysis| M["Have I been here?"]
+    M -->|Location Matching| N["Where should I go?"]
+    N -->|Navigation Planning| C["Motor Command"]
+    C -->|Bytecode Compiler| B["AA 04 B4 64 D4 FF"]
+```
+
+Each step builds on the previous one:
+
+1. **Scene Analysis** — The VLM interprets the camera frame (or text description) and extracts a location label, visual features, and navigation hints (exits, doors, paths).
+2. **Location Matching** — The VLM compares the current scene against all known nodes in the topological map to determine if the robot has been here before.
+3. **Navigation Planning** — Given the semantic map, current location, and target destination, the VLM reasons about which motor action to take.
+4. **Bytecode Compilation** — The VLM's text command (`FORWARD 150 150`) compiles to a 6-byte motor frame (`AA 01 96 96 01 FF`).
+
+The **Semantic Map** is the robot's working memory — a topological graph where nodes are locations (identified by their visual features) and edges are navigation paths between them. It accumulates as the robot explores, enabling re-identification of visited places and multi-hop path planning.
+
+### E2E Validation (no hardware required)
+
+The navigation chain of thought is tested end-to-end using real VLM inference (Qwen3-VL-8B via OpenRouter) but **without any camera or hardware**. Text descriptions simulate what the robot's camera would see, and the VLM reasons about them as if interpreting real images.
+
+```bash
+export OPENROUTER_API_KEY=sk-or-v1-...
+npm test -- --testPathPattern=semantic-map
+```
+
+**Test results with `qwen/qwen3-vl-8b-thinking`:**
+
+| Capability | Result |
+|------------|--------|
+| Scene analysis (kitchen, bedroom, hallway) | Correct labels + features extracted |
+| Location matching (same kitchen, different angle) | `isSameLocation: true, confidence: 0.9` |
+| Location distinction (kitchen vs bedroom) | `isSameLocation: false, confidence: 0.99` |
+| Map building (5-room apartment exploration) | 5 nodes, 6 edges, correct revisit detection |
+| Navigation planning (hallway → kitchen) | `TURN_RIGHT 180 100` (kitchen is to the right) |
+| Full pipeline (scene → map → plan → bytecode) | `FORWARD 150 150` → `AA 01 96 96 01 FF` |
+| Pathfinding across built map | BFS shortest path works across all nodes |
+
 ## Zero-Latency Bytecode
 
 The killer feature: Qwen-VL generates motor commands as raw hex bytecode. No JSON parsing on the ESP32.
@@ -126,7 +168,7 @@ The numbered folders encode the architecture:
 
 1. **Cortex** — The slow thinker. Receives "go to the kitchen" from OpenClaw, translates to a Cerebellum goal.
 2. **Cerebellum** — The fast reactor. Sees camera frames, outputs bytecode motor commands at 2 FPS.
-3. **LLMunix Memory** — The dreamer. Stores hardware specs, learned skills, and execution traces.
+3. **LLMunix Memory** — The dreamer. Stores hardware specs, learned skills, execution traces, and the semantic map (topological memory for navigation).
 4. **Somatic Firmware** — The spinal cord. Bytecode-only UDP listener on ESP32-S3. MJPEG streamer on ESP32-CAM.
 5. **Hardware CAD** — The body. 3D-printable parts and assembly reference.
 

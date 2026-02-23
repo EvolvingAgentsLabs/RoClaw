@@ -1,16 +1,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { SemanticMap, type SemanticMapEntry, type Pose } from '../../src/3_llmunix_memory/semantic_map';
+import { PoseMap, type SemanticMapEntry, type Pose } from '../../src/3_llmunix_memory/semantic_map';
 
 const MAP_FILE = path.join(__dirname, '../../src/3_llmunix_memory/traces/semantic_map.json');
 
-describe('SemanticMap', () => {
-  let map: SemanticMap;
+describe('PoseMap', () => {
+  let map: PoseMap;
 
   beforeEach(() => {
     // Remove existing map file to start fresh
     try { fs.unlinkSync(MAP_FILE); } catch { /* ignore */ }
-    map = new SemanticMap();
+    map = new PoseMap();
   });
 
   afterEach(() => {
@@ -136,7 +136,7 @@ describe('SemanticMap', () => {
       map.record('kitchen', { x: 100, y: 50, heading: 90 });
 
       // Create a new instance — should load from disk
-      const map2 = new SemanticMap();
+      const map2 = new PoseMap();
       const entries = map2.getAll();
       expect(entries).toHaveLength(1);
       expect(entries[0].label).toBe('kitchen');

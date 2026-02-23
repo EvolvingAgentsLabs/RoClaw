@@ -11,7 +11,7 @@ import { UDPTransmitter } from '../2_qwen_cerebellum/udp_transmitter';
 import { VisionLoop } from '../2_qwen_cerebellum/vision_loop';
 import type { InferenceFunction } from '../2_qwen_cerebellum/inference';
 import { MemoryManager } from '../3_llmunix_memory/memory_manager';
-import { SemanticMap } from '../3_llmunix_memory/semantic_map';
+import { PoseMap } from '../3_llmunix_memory/semantic_map';
 
 // =============================================================================
 // Types
@@ -32,15 +32,15 @@ export interface ToolContext {
 
 // Module-level singletons — avoids changing ToolContext interface
 const memoryManager = new MemoryManager();
-const semanticMap = new SemanticMap();
+const semanticMap = new PoseMap();
 
 /** Exposed for testing — allows injecting a mock MemoryManager */
 export function _getMemoryManager(): MemoryManager {
   return memoryManager;
 }
 
-/** Exposed for testing — allows accessing the SemanticMap */
-export function _getSemanticMap(): SemanticMap {
+/** Exposed for testing — allows accessing the PoseMap */
+export function _getSemanticMap(): PoseMap {
   return semanticMap;
 }
 
