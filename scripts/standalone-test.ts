@@ -26,6 +26,7 @@ const config = {
   esp32Port: parseInt(process.env.ESP32_S3_PORT || '4210', 10),
   cameraHost: process.env.ESP32_CAM_HOST || '127.0.0.1',
   cameraPort: parseInt(process.env.ESP32_CAM_PORT || '8081', 10),
+  cameraPath: process.env.ESP32_CAM_PATH || '/stream',
   apiKey: process.env.OPENROUTER_API_KEY || 'local',
   model: process.env.QWEN_MODEL || 'qwen/qwen-2.5-vl-72b-instruct',
   localInferenceUrl: process.env.LOCAL_INFERENCE_URL,
@@ -66,7 +67,7 @@ async function main(): Promise<void> {
   const infer = inference.createInferenceFunction();
   console.log(`  Inference → ${config.localInferenceUrl || 'OpenRouter'}`);
 
-  const cameraUrl = `http://${config.cameraHost}:${config.cameraPort}/stream`;
+  const cameraUrl = `http://${config.cameraHost}:${config.cameraPort}${config.cameraPath}`;
   const visionLoop = new VisionLoop({ cameraUrl, targetFPS: 2 }, compiler, transmitter, infer);
   console.log(`  Camera → ${cameraUrl}`);
 

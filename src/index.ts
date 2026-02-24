@@ -35,6 +35,7 @@ const config = {
   esp32Port: parseInt(process.env.ESP32_S3_PORT || '4210', 10),
   cameraHost: process.env.ESP32_CAM_HOST || '192.168.1.101',
   cameraPort: parseInt(process.env.ESP32_CAM_PORT || '80', 10),
+  cameraPath: process.env.ESP32_CAM_PATH || '/stream',
 
   // Vision Loop
   frameHistorySize: parseInt(process.env.FRAME_HISTORY_SIZE || '4', 10),
@@ -82,7 +83,7 @@ async function main(): Promise<void> {
   logger.info('RoClaw', `Inference: ${config.localInferenceUrl ? 'local' : 'OpenRouter'} (${config.model})`);
 
   // 4. Initialize vision loop (rolling video buffer for temporal/3D perception)
-  const cameraUrl = `http://${config.cameraHost}:${config.cameraPort}/stream`;
+  const cameraUrl = `http://${config.cameraHost}:${config.cameraPort}${config.cameraPath}`;
   const visionLoop = new VisionLoop(
     { cameraUrl, targetFPS: 2, frameHistorySize: config.frameHistorySize },
     compiler,
