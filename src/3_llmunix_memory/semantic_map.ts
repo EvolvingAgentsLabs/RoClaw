@@ -397,15 +397,22 @@ export class SemanticMap {
       throw new Error('Failed to analyze scene');
     }
 
-    // Try to match against existing nodes
+    // Try to match against existing nodes (early exit on high-confidence match)
     let bestMatch: { nodeId: string; confidence: number } | null = null;
 
     for (const [id, node] of this.nodes) {
-      const match = await this.matchLocation(analysis, node);
-      if (match && match.isSameLocation && match.confidence > 0.6) {
-        if (!bestMatch || match.confidence > bestMatch.confidence) {
-          bestMatch = { nodeId: id, confidence: match.confidence };
+      try {
+        const match = await this.matchLocation(analysis, node);
+        if (match && match.isSameLocation && match.confidence > 0.6) {
+          if (!bestMatch || match.confidence > bestMatch.confidence) {
+            bestMatch = { nodeId: id, confidence: match.confidence };
+          }
+          // Early exit — high-confidence match means no need to check remaining nodes
+          if (bestMatch.confidence >= 0.85) break;
         }
+      } catch {
+        // Individual match failure (e.g., VLM timeout) — skip this candidate
+        // and continue checking others. Worst case: a duplicate node is created.
       }
     }
 
