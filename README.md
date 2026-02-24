@@ -125,8 +125,8 @@ npm test                # Run test suite
 1. Print the chassis from `5_hardware_cad/stl_files/`
 2. Assemble per the [BOM](5_hardware_cad/BOM.md)
 3. Flash `4_somatic_firmware/esp32_s3_spinal_cord/` to ESP32-S3
-4. Flash `4_somatic_firmware/esp32_cam_eyes/` to ESP32-CAM
-5. Update `.env` with ESP32 IP addresses
+4. Flash `4_somatic_firmware/esp32_cam_eyes/` to ESP32-CAM (or use an [Android phone as a camera](docs/05-Camera-Setup.md))
+5. Update `.env` with ESP32 IP addresses and camera path (see [Camera Setup Guide](docs/05-Camera-Setup.md))
 6. `npm run dev`
 
 ## The Robot
