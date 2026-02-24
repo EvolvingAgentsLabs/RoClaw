@@ -10,9 +10,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../shared/logger';
 
-const SYSTEM_DIR = path.join(__dirname, 'system');
-const SKILLS_DIR = path.join(__dirname, 'skills');
-const TRACES_DIR = path.join(__dirname, 'traces');
+const DEFAULT_SYSTEM_DIR = path.join(__dirname, 'system');
+const DEFAULT_SKILLS_DIR = path.join(__dirname, 'skills');
+const DEFAULT_TRACES_DIR = path.join(__dirname, 'traces');
+
+export interface MemoryManagerConfig {
+  systemDir?: string;
+  skillsDir?: string;
+  tracesDir?: string;
+}
 
 /**
  * Read a file and return its contents, or empty string if missing.
@@ -27,13 +33,22 @@ function safeRead(filePath: string): string {
 
 export class MemoryManager {
   private cache = new Map<string, string>();
+  private systemDir: string;
+  private skillsDir: string;
+  private tracesDir: string;
+
+  constructor(config: MemoryManagerConfig = {}) {
+    this.systemDir = config.systemDir ?? DEFAULT_SYSTEM_DIR;
+    this.skillsDir = config.skillsDir ?? DEFAULT_SKILLS_DIR;
+    this.tracesDir = config.tracesDir ?? DEFAULT_TRACES_DIR;
+  }
 
   /**
    * Get the hardware profile (chassis, motors, sensors, limits).
    */
   getHardwareProfile(): string {
     return this.cached('hardware', () =>
-      safeRead(path.join(SYSTEM_DIR, 'hardware.md')),
+      safeRead(path.join(this.systemDir, 'hardware.md')),
     );
   }
 
@@ -42,7 +57,7 @@ export class MemoryManager {
    */
   getIdentity(): string {
     return this.cached('identity', () =>
-      safeRead(path.join(SYSTEM_DIR, 'identity.md')),
+      safeRead(path.join(this.systemDir, 'identity.md')),
     );
   }
 
@@ -52,11 +67,11 @@ export class MemoryManager {
   getSkills(): string {
     return this.cached('skills', () => {
       try {
-        const files = fs.readdirSync(SKILLS_DIR)
+        const files = fs.readdirSync(this.skillsDir)
           .filter(f => f.endsWith('.md'))
           .sort();
         return files
-          .map(f => safeRead(path.join(SKILLS_DIR, f)))
+          .map(f => safeRead(path.join(this.skillsDir, f)))
           .filter(Boolean)
           .join('\n---\n');
       } catch {
@@ -71,13 +86,13 @@ export class MemoryManager {
   getRecentTraces(n = 3): string {
     return this.cached(`traces:${n}`, () => {
       try {
-        const files = fs.readdirSync(TRACES_DIR)
+        const files = fs.readdirSync(this.tracesDir)
           .filter(f => f.endsWith('.md'))
           .sort()
           .reverse()
           .slice(0, n);
         return files
-          .map(f => safeRead(path.join(TRACES_DIR, f)))
+          .map(f => safeRead(path.join(this.tracesDir, f)))
           .filter(Boolean)
           .join('\n---\n');
       } catch {

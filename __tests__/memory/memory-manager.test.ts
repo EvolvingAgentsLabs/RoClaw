@@ -1,10 +1,27 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { MemoryManager } from '../../src/3_llmunix_memory/memory_manager';
 
 describe('MemoryManager', () => {
   let mm: MemoryManager;
+  let emptyTracesDir: string;
+  let emptySkillsDir: string;
 
   beforeEach(() => {
-    mm = new MemoryManager();
+    // Use temp directories for traces and skills so existing trace files
+    // on disk don't interfere with tests expecting empty results.
+    emptyTracesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'roclaw-traces-'));
+    emptySkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'roclaw-skills-'));
+    mm = new MemoryManager({
+      tracesDir: emptyTracesDir,
+      skillsDir: emptySkillsDir,
+    });
+  });
+
+  afterEach(() => {
+    fs.rmSync(emptyTracesDir, { recursive: true, force: true });
+    fs.rmSync(emptySkillsDir, { recursive: true, force: true });
   });
 
   // ===========================================================================
@@ -76,7 +93,7 @@ describe('MemoryManager', () => {
 
     test('does not include empty sections', () => {
       const ctx = mm.getFullContext();
-      // Skills and traces dirs have no .md files, so these sections should be absent
+      // Skills and traces dirs are empty, so these sections should be absent
       expect(ctx).not.toContain('## Skills');
       expect(ctx).not.toContain('## Recent Traces');
     });
