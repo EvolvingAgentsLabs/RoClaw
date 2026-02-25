@@ -8,3 +8,6 @@ dist/
 # Runtime data (semantic map, trace logs)
 src/3_llmunix_memory/traces/semantic_map.json
 src/3_llmunix_memory/traces/trace_*.md
+
+# Outdoor route frame images (too large for git — each developer captures their own)
+__tests__/navigation/fixtures/outdoor_routes/*/

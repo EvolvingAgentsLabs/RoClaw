@@ -12,6 +12,7 @@ import type { VisionLoop } from '../2_qwen_cerebellum/vision_loop';
 import type { InferenceFunction } from '../2_qwen_cerebellum/inference';
 import { BytecodeCompiler, Opcode } from '../2_qwen_cerebellum/bytecode_compiler';
 import { UDPTransmitter } from '../2_qwen_cerebellum/udp_transmitter';
+import type { SensorSource } from '../shared/sensor_source';
 
 // =============================================================================
 // Types
@@ -40,6 +41,7 @@ export class SemanticMapLoop extends EventEmitter {
   private infer: InferenceFunction;
   private compiler: BytecodeCompiler;
   private transmitter: UDPTransmitter;
+  private sensorSource?: SensorSource;
 
   private running = false;
   private analyzing = false;
@@ -53,6 +55,7 @@ export class SemanticMapLoop extends EventEmitter {
     compiler: BytecodeCompiler,
     transmitter: UDPTransmitter,
     config?: Partial<SemanticMapLoopConfig>,
+    sensorSource?: SensorSource,
   ) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -61,6 +64,7 @@ export class SemanticMapLoop extends EventEmitter {
     this.infer = infer;
     this.compiler = compiler;
     this.transmitter = transmitter;
+    this.sensorSource = sensorSource;
   }
 
   /**
@@ -170,6 +174,21 @@ export class SemanticMapLoop extends EventEmitter {
         };
       } catch {
         logger.debug('SemanticMapLoop', 'Could not get pose, proceeding without');
+      }
+
+      // Override heading with compass if SensorSource is available
+      if (this.sensorSource) {
+        const compassReading = await this.sensorSource.getHeading();
+        if (compassReading) {
+          const odometryHeading = pose?.heading;
+          if (!pose) {
+            pose = { x: 0, y: 0, heading: compassReading.heading };
+          } else {
+            pose.heading = compassReading.heading;
+          }
+          logger.info('SemanticMapLoop', `Using compass heading: ${compassReading.heading.toFixed(1)}deg` +
+            (odometryHeading !== undefined ? ` (replacing odometry: ${odometryHeading.toFixed(1)}deg)` : ''));
+        }
       }
 
       // Process the scene through SemanticMap

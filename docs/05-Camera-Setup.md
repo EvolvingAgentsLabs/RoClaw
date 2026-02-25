@@ -83,6 +83,53 @@ ESP32_CAM_PORT=4747
 ESP32_CAM_PATH=/mjpegfeed
 ```
 
+## Sensor Integration (IP Webcam Only)
+
+IP Webcam exposes phone sensors (compass, accelerometer, gyroscope, GPS) via HTTP at `/sensors.json`. This is used by RoClaw for compass heading — DroidCam does **not** provide sensor access.
+
+### Setup
+
+1. Open IP Webcam → **Data logging** → Enable sensor logging.
+2. Start the server.
+3. Verify sensors are accessible:
+
+```bash
+curl http://192.168.1.50:8080/sensors.json | jq '.orientation'
+```
+
+You should see output like:
+
+```json
+{
+  "data": [[[45.2, -3.1, 0.5]]],
+  "unit": "deg"
+}
+```
+
+The `orientation` sensor provides `[azimuth, pitch, roll]` where **azimuth** (index 0) is the compass heading in degrees (0 = North, 90 = East, 180 = South, 270 = West).
+
+### Configuration
+
+Add to `.env`:
+
+```env
+IP_WEBCAM_HOST=192.168.1.50
+IP_WEBCAM_PORT=8080
+```
+
+When configured, `SemanticMapLoop` uses compass heading from the phone's magnetometer to override ESP32 odometry heading, which is more accurate for absolute heading.
+
+### Capturing Outdoor Routes
+
+You can record a walking route with frames + compass data for E2E testing:
+
+```bash
+IP_WEBCAM_HOST=192.168.1.50 IP_WEBCAM_PORT=8080 \
+  npx tsx scripts/capture-route.ts --name my-route --duration 30
+```
+
+See `__tests__/navigation/fixtures/outdoor_routes/README.md` for details.
+
 ## Troubleshooting
 
 **"Connection refused" or timeout**
