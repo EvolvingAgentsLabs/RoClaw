@@ -88,7 +88,7 @@ export interface LocationMatch {
 
 const SCENE_ANALYSIS_SYSTEM = `You are a robot's spatial perception system. You analyze scenes and output structured JSON.
 
-You will receive a text description of what the robot's camera currently sees.
+You will receive either a text description or actual camera images showing what the robot currently sees.
 Analyze the scene and identify:
 1. What type of location/room this is
 2. Key visual features that identify this location
@@ -342,11 +342,15 @@ export class SemanticMap {
   /**
    * Analyze a scene description and return structured location data.
    * Works with both text descriptions (simulated) and image-based inference.
+   *
+   * @param sceneDescription Text description of the scene (or prompt for image analysis)
+   * @param images Optional base64-encoded images to pass to the VLM for direct vision analysis
    */
-  async analyzeScene(sceneDescription: string): Promise<SceneAnalysis | null> {
+  async analyzeScene(sceneDescription: string, images?: string[]): Promise<SceneAnalysis | null> {
     const response = await this.infer(
       SCENE_ANALYSIS_SYSTEM,
       `The robot's camera currently sees:\n\n${sceneDescription}`,
+      images,
     );
 
     return parseJSONSafe<SceneAnalysis>(response);
@@ -388,13 +392,19 @@ export class SemanticMap {
   /**
    * Process a new scene: analyze it, match or create a node, and link edges.
    * Returns the node ID for the current location.
+   *
+   * @param sceneDescription Text description of the scene (or prompt for image analysis)
+   * @param pose Optional robot pose at the time of observation
+   * @param actionTaken Optional description of the action that brought the robot here
+   * @param images Optional base64-encoded images to pass to the VLM for direct vision analysis
    */
   async processScene(
     sceneDescription: string,
     pose?: { x: number; y: number; heading: number },
     actionTaken?: string,
+    images?: string[],
   ): Promise<{ nodeId: string; isNew: boolean; analysis: SceneAnalysis }> {
-    const analysis = await this.analyzeScene(sceneDescription);
+    const analysis = await this.analyzeScene(sceneDescription, images);
     if (!analysis) {
       throw new Error('Failed to analyze scene');
     }
