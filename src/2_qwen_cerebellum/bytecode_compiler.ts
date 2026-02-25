@@ -133,35 +133,35 @@ const TEXT_COMMAND_PATTERNS: Array<{
   compile: (match: RegExpMatchArray) => BytecodeFrame;
 }> = [
   {
-    pattern: /^FORWARD\s+(-?\d+)\s+(-?\d+)$/i,
+    pattern: /^FORWARD\s+(-?\d+)\s+(-?\d+)/i,
     compile: (m) => ({ opcode: Opcode.MOVE_FORWARD, paramLeft: clampByte(m[1]), paramRight: clampByte(m[2]) }),
   },
   {
-    pattern: /^BACKWARD\s+(-?\d+)\s+(-?\d+)$/i,
+    pattern: /^BACKWARD\s+(-?\d+)\s+(-?\d+)/i,
     compile: (m) => ({ opcode: Opcode.MOVE_BACKWARD, paramLeft: clampByte(m[1]), paramRight: clampByte(m[2]) }),
   },
   {
-    pattern: /^TURN_LEFT\s+(-?\d+)\s+(-?\d+)$/i,
+    pattern: /^TURN_LEFT\s+(-?\d+)\s+(-?\d+)/i,
     compile: (m) => ({ opcode: Opcode.TURN_LEFT, paramLeft: clampByte(m[1]), paramRight: clampByte(m[2]) }),
   },
   {
-    pattern: /^TURN_RIGHT\s+(-?\d+)\s+(-?\d+)$/i,
+    pattern: /^TURN_RIGHT\s+(-?\d+)\s+(-?\d+)/i,
     compile: (m) => ({ opcode: Opcode.TURN_RIGHT, paramLeft: clampByte(m[1]), paramRight: clampByte(m[2]) }),
   },
   {
-    pattern: /^ROTATE_CW\s+(-?\d+)\s+(-?\d+)$/i,
+    pattern: /^ROTATE_CW\s+(-?\d+)\s+(-?\d+)/i,
     compile: (m) => ({ opcode: Opcode.ROTATE_CW, paramLeft: clampByte(m[1]), paramRight: clampByte(m[2]) }),
   },
   {
-    pattern: /^ROTATE_CCW\s+(-?\d+)\s+(-?\d+)$/i,
+    pattern: /^ROTATE_CCW\s+(-?\d+)\s+(-?\d+)/i,
     compile: (m) => ({ opcode: Opcode.ROTATE_CCW, paramLeft: clampByte(m[1]), paramRight: clampByte(m[2]) }),
   },
   {
-    pattern: /^STOP$/i,
+    pattern: /^STOP/i,
     compile: () => ({ opcode: Opcode.STOP, paramLeft: 0, paramRight: 0 }),
   },
   {
-    pattern: /^STATUS$/i,
+    pattern: /^STATUS/i,
     compile: () => ({ opcode: Opcode.GET_STATUS, paramLeft: 0, paramRight: 0 }),
   },
 ];
@@ -170,6 +170,21 @@ function clampByte(value: string): number {
   const n = parseInt(value, 10);
   if (isNaN(n)) return 0;
   return Math.max(0, Math.min(255, n));
+}
+
+/**
+ * Normalize a text command: strip trailing punctuation, markdown formatting,
+ * and replace commas with spaces for permissive parsing.
+ */
+function normalizeTextCommand(text: string): string {
+  let normalized = text;
+  // Strip markdown formatting (* and `) but preserve underscores in command names
+  normalized = normalized.replace(/[*`]/g, '');
+  // Replace commas with spaces
+  normalized = normalized.replace(/,/g, ' ');
+  // Strip trailing punctuation
+  normalized = normalized.replace(/[.!?;]+$/, '');
+  return normalized.trim();
 }
 
 // =============================================================================
@@ -245,6 +260,19 @@ export class BytecodeCompiler {
   }
 
   /**
+   * Create a STOP frame with optional holding torque.
+   * holdTorque=false (default): freewheel — coils disabled
+   * holdTorque=true: maintain position — coils stay energized
+   */
+  createStopFrame(holdTorque: boolean = false): Buffer {
+    return encodeFrame({
+      opcode: Opcode.STOP,
+      paramLeft: holdTorque ? 1 : 0,
+      paramRight: 0,
+    });
+  }
+
+  /**
    * Get the system prompt for Qwen-VL that teaches it to output bytecode.
    */
   getSystemPrompt(goal: string): string {
@@ -302,8 +330,9 @@ export class BytecodeCompiler {
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
 
     for (const line of lines) {
+      const normalized = normalizeTextCommand(line);
       for (const { pattern, compile } of TEXT_COMMAND_PATTERNS) {
-        const match = line.match(pattern);
+        const match = normalized.match(pattern);
         if (match) {
           return encodeFrame(compile(match));
         }

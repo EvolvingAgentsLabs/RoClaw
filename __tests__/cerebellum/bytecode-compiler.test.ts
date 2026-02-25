@@ -240,6 +240,71 @@ describe('BytecodeCompiler', () => {
   });
 
   // ===========================================================================
+  // createStopFrame helper (holding torque toggle)
+  // ===========================================================================
+
+  describe('createStopFrame', () => {
+    test('freewheel stop (default)', () => {
+      const buf = compiler.createStopFrame();
+      expect(formatHex(buf)).toBe('AA 07 00 00 07 FF');
+    });
+
+    test('freewheel stop (explicit false)', () => {
+      const buf = compiler.createStopFrame(false);
+      expect(formatHex(buf)).toBe('AA 07 00 00 07 FF');
+    });
+
+    test('hold torque stop', () => {
+      const buf = compiler.createStopFrame(true);
+      expect(buf[1]).toBe(Opcode.STOP);
+      expect(buf[2]).toBe(1); // PARAM_L = 1 (hold)
+      expect(buf[3]).toBe(0);
+      // Checksum: 0x07 ^ 0x01 ^ 0x00 = 0x06
+      expect(buf[4]).toBe(0x06);
+    });
+  });
+
+  // ===========================================================================
+  // Permissive text command parsing
+  // ===========================================================================
+
+  describe('permissive text commands', () => {
+    test('compiles FORWARD with trailing period', () => {
+      const result = compiler.compile('FORWARD 100 100.');
+      expect(result).not.toBeNull();
+      expect(result![1]).toBe(Opcode.MOVE_FORWARD);
+      expect(result![2]).toBe(100);
+      expect(result![3]).toBe(100);
+    });
+
+    test('compiles FORWARD with commas instead of spaces', () => {
+      const result = compiler.compile('FORWARD, 100, 100');
+      expect(result).not.toBeNull();
+      expect(result![1]).toBe(Opcode.MOVE_FORWARD);
+      expect(result![2]).toBe(100);
+      expect(result![3]).toBe(100);
+    });
+
+    test('compiles **STOP** with markdown bold', () => {
+      const result = compiler.compile('**STOP**');
+      expect(result).not.toBeNull();
+      expect(result![1]).toBe(Opcode.STOP);
+    });
+
+    test('compiles STOP with trailing exclamation', () => {
+      const result = compiler.compile('STOP!');
+      expect(result).not.toBeNull();
+      expect(result![1]).toBe(Opcode.STOP);
+    });
+
+    test('compiles BACKWARD with trailing semicolon', () => {
+      const result = compiler.compile('BACKWARD 80 80;');
+      expect(result).not.toBeNull();
+      expect(result![1]).toBe(Opcode.MOVE_BACKWARD);
+    });
+  });
+
+  // ===========================================================================
   // formatHex
   // ===========================================================================
 

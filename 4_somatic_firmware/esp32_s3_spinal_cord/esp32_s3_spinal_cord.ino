@@ -30,6 +30,10 @@ const char* WIFI_SSID = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 const int UDP_PORT = 4210;
 
+// IP filter: set to your host IP for production security.
+// Default "0.0.0.0" accepts commands from any source (backward-compatible).
+const char* CORTEX_IP = "0.0.0.0";
+
 // =============================================================================
 // Pin Definitions — ULN2003 to ESP32-S3
 // =============================================================================
@@ -195,6 +199,18 @@ void loop() {
   // 1. Check for incoming UDP bytecode commands
   int packetSize = udp.parsePacket();
   if (packetSize > 0) {
+    // IP filtering: reject packets from unauthorized sources
+    if (strcmp(CORTEX_IP, "0.0.0.0") != 0) {
+      IPAddress allowed;
+      allowed.fromString(CORTEX_IP);
+      if (udp.remoteIP() != allowed) {
+        Serial.printf("[RoClaw] Rejected packet from %s (expected %s)\n",
+                      udp.remoteIP().toString().c_str(), CORTEX_IP);
+        udp.flush();
+        return;
+      }
+    }
+
     int len = udp.read(udpBuffer, sizeof(udpBuffer));
     if (len >= FRAME_SIZE) {
       lastCommandTime = millis();
@@ -279,7 +295,7 @@ void handleBytecodeFrame(const uint8_t* frame) {
     case OP_TURN_RIGHT:    opTurnRight(paramL, paramR);    break;
     case OP_ROTATE_CW:     opRotateCW(paramL, paramR);     break;
     case OP_ROTATE_CCW:    opRotateCCW(paramL, paramR);    break;
-    case OP_STOP:          opStop();                        break;
+    case OP_STOP:          opStop(paramL);                   break;
     case OP_GET_STATUS:    opGetStatus();                   break;
     case OP_SET_SPEED:     opSetSpeed(paramL, paramR);      break;
     case OP_MOVE_STEPS:    opMoveStepsL(paramL, paramR);    break;
@@ -402,17 +418,24 @@ void opRotateCCW(uint8_t degrees, uint8_t speed) {
   safety_motor_started();
 }
 
-void opStop() {
+// holdMode: 0 = freewheel (disable coils, default), 1 = hold (maintain torque)
+// Backward-compatible: existing STOP frames (AA 07 00 00 07 FF) freewheel as before.
+void opStop(uint8_t holdMode) {
   leftMotor.stop();
   rightMotor.stop();
   leftMotor.setCurrentPosition(leftMotor.currentPosition());
   rightMotor.setCurrentPosition(rightMotor.currentPosition());
   motorsRunning = false;
   safety_motor_stopped();
-  disableMotorCoils();
+
+  if (holdMode == 0) {
+    disableMotorCoils();
+  }
+  // holdMode == 1: coils stay energized to maintain position
 
   // Send ACK: echo back STOP frame
-  uint8_t ack[] = {FRAME_START, OP_STOP, 0x00, 0x00, OP_STOP, FRAME_END};
+  uint8_t ack[] = {FRAME_START, OP_STOP, holdMode, 0x00,
+                   (uint8_t)(OP_STOP ^ holdMode), FRAME_END};
   udp.beginPacket(udp.remoteIP(), udp.remotePort());
   udp.write(ack, sizeof(ack));
   udp.endPacket();

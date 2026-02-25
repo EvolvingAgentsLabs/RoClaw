@@ -8,7 +8,8 @@
     "dev": "tsx src/index.ts",
     "sim": "tsx src/virtual_roclaw.ts",
     "test": "jest --no-coverage",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "dream": "tsx scripts/dream.ts"
   },
   "keywords": [
     "robot",

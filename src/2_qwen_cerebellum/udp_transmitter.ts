@@ -29,6 +29,8 @@ export interface TransmitterStats {
   bytesTransmitted: number;
   errors: number;
   retries: number;
+  droppedFrames: number;
+  currentSequence: number;
   connected: boolean;
   averageLatencyMs: number;
 }
@@ -49,6 +51,8 @@ export class UDPTransmitter {
   private socket: dgram.Socket | null = null;
   private connected = false;
   private latencies: number[] = [];
+  private sequenceNumber = 0;
+  private droppedFrames = 0;
   private stats = {
     framesSent: 0,
     bytesTransmitted: 0,
@@ -120,6 +124,7 @@ export class UDPTransmitter {
         await this.sendRaw(frame);
         const latency = performance.now() - start;
 
+        this.sequenceNumber++;
         this.stats.framesSent++;
         this.stats.bytesTransmitted += frame.length;
         this.latencies.push(latency);
@@ -152,6 +157,7 @@ export class UDPTransmitter {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.socket?.removeListener('message', onMessage);
+        this.droppedFrames++;
         reject(new Error('Response timeout'));
       }, timeout);
 
@@ -182,6 +188,8 @@ export class UDPTransmitter {
 
     return {
       ...this.stats,
+      droppedFrames: this.droppedFrames,
+      currentSequence: this.sequenceNumber,
       connected: this.connected,
       averageLatencyMs: Math.round(avgLatency * 100) / 100,
     };

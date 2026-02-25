@@ -50,6 +50,7 @@ export interface SemanticNode {
   firstVisited: number;
   lastVisited: number;
   position?: { x: number; y: number; heading: number };
+  featureFingerprint?: string;
 }
 
 export interface SemanticEdge {
@@ -172,6 +173,45 @@ function parseJSONSafe<T>(text: string): T | null {
     });
     return null;
   }
+}
+
+// =============================================================================
+// Feature Fingerprint — Fast pre-filter to avoid expensive VLM calls
+// =============================================================================
+
+/**
+ * Generate a FNV-1a hash of sorted lowercase features.
+ * Used as a fast fingerprint for feature set comparison.
+ */
+export function generateFeatureFingerprint(features: string[]): string {
+  const sorted = features.map(f => f.toLowerCase().trim()).sort();
+  const str = sorted.join('|');
+  // FNV-1a 32-bit hash
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+/**
+ * Compare two feature sets using Jaccard similarity (intersection / union).
+ * Returns a value between 0 (no overlap) and 1 (identical sets).
+ */
+export function compareFeatureSets(a: string[], b: string[]): number {
+  const setA = new Set(a.map(f => f.toLowerCase().trim()));
+  const setB = new Set(b.map(f => f.toLowerCase().trim()));
+
+  if (setA.size === 0 && setB.size === 0) return 1;
+
+  let intersection = 0;
+  for (const item of setA) {
+    if (setB.has(item)) intersection++;
+  }
+
+  const union = setA.size + setB.size - intersection;
+  return union === 0 ? 0 : intersection / union;
 }
 
 // =============================================================================
@@ -410,9 +450,19 @@ export class SemanticMap {
     }
 
     // Try to match against existing nodes (early exit on high-confidence match)
+    // Uses Jaccard similarity pre-filter to skip obviously-different locations
     let bestMatch: { nodeId: string; confidence: number } | null = null;
 
     for (const [id, node] of this.nodes) {
+      // Fast pre-filter: skip nodes with very different feature sets
+      if (node.features.length > 0 && analysis.features.length > 0) {
+        const similarity = compareFeatureSets(analysis.features, node.features);
+        if (similarity < 0.15) {
+          logger.debug('SemanticMap', `Skipping ${node.label} (Jaccard=${similarity.toFixed(2)})`);
+          continue;
+        }
+      }
+
       try {
         const match = await this.matchLocation(analysis, node);
         if (match && match.isSameLocation && match.confidence > 0.6) {
@@ -432,6 +482,8 @@ export class SemanticMap {
     let nodeId: string;
     let isNew: boolean;
 
+    const fingerprint = generateFeatureFingerprint(analysis.features);
+
     if (bestMatch) {
       // Update existing node
       nodeId = bestMatch.nodeId;
@@ -439,6 +491,7 @@ export class SemanticMap {
       const node = this.nodes.get(nodeId)!;
       node.visitCount++;
       node.lastVisited = now;
+      node.featureFingerprint = fingerprint;
       if (pose) node.position = pose;
     } else {
       // Create new node
@@ -454,6 +507,7 @@ export class SemanticMap {
         firstVisited: now,
         lastVisited: now,
         position: pose,
+        featureFingerprint: fingerprint,
       });
     }
 

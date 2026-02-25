@@ -10,7 +10,7 @@
 import { EventEmitter } from 'events';
 import * as http from 'http';
 import { logger } from '../shared/logger';
-import { BytecodeCompiler, formatHex } from './bytecode_compiler';
+import { BytecodeCompiler, Opcode, encodeFrame, formatHex } from './bytecode_compiler';
 import { UDPTransmitter } from './udp_transmitter';
 import { appendTrace } from '../3_llmunix_memory/trace_logger';
 import type { InferenceFunction } from './inference';
@@ -44,6 +44,11 @@ export interface VisionLoopStats {
   connected: boolean;
 }
 
+export interface TimestampedFrame {
+  base64Data: string;
+  timestamp: number;
+}
+
 const DEFAULT_CONFIG: VisionLoopConfig = {
   cameraUrl: '',
   targetFPS: 2,
@@ -69,7 +74,11 @@ export class VisionLoop extends EventEmitter {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private processingFrame = false;
   private latestFrameBase64: string = '';
-  private frameHistory: string[] = [];
+  private frameHistory: TimestampedFrame[] = [];
+
+  // Heartbeat: keeps ESP32 alive during slow VLM inference (5-30s)
+  private static readonly HEARTBEAT_INTERVAL_MS = 1500; // Under the 2000ms firmware timeout
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   // MJPEG parsing state
   private buffer = Buffer.alloc(0);
@@ -122,6 +131,7 @@ export class VisionLoop extends EventEmitter {
    */
   stop(): void {
     this.running = false;
+    this.stopInferenceHeartbeat();
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -134,7 +144,7 @@ export class VisionLoop extends EventEmitter {
     }
 
     this.buffer = Buffer.alloc(0);
-    this.frameHistory = [];
+    this.flushFrameHistory();
     logger.info('VisionLoop', 'Stopped');
   }
 
@@ -156,6 +166,7 @@ export class VisionLoop extends EventEmitter {
       ? `This is a video of the last ${frames.length} frames of movement (oldest→newest). The goal is: ${this.currentGoal}. Use the visual differences between frames to gauge your velocity and 3D surroundings. Output the next 6-byte motor command.`
       : 'What do you see? Output the next motor command.';
 
+    this.startInferenceHeartbeat();
     try {
       const vlmOutput = await this.infer(systemPrompt, userMessage, frames);
       this.statsData.inferenceCount++;
@@ -173,6 +184,8 @@ export class VisionLoop extends EventEmitter {
         error: error instanceof Error ? error.message : String(error),
       });
       return null;
+    } finally {
+      this.stopInferenceHeartbeat();
     }
   }
 
@@ -194,9 +207,42 @@ export class VisionLoop extends EventEmitter {
 
   /**
    * Get the current frame history buffer (oldest first).
+   * Returns base64 strings for backward compatibility.
    */
   getFrameHistory(): string[] {
-    return [...this.frameHistory];
+    return this.frameHistory.map(f => f.base64Data);
+  }
+
+  /**
+   * Flush the frame history buffer. Call after emergency stop
+   * to discard stale frames.
+   */
+  flushFrameHistory(): void {
+    this.frameHistory = [];
+    logger.info('VisionLoop', 'Frame history flushed');
+  }
+
+  /**
+   * Start sending GET_STATUS heartbeat frames during VLM inference
+   * to prevent the ESP32 firmware timeout (2s) from triggering emergency stop.
+   */
+  private startInferenceHeartbeat(): void {
+    this.stopInferenceHeartbeat();
+    const statusFrame = encodeFrame({ opcode: Opcode.GET_STATUS, paramLeft: 0, paramRight: 0 });
+    this.heartbeatTimer = setInterval(() => {
+      this.transmitter.send(statusFrame).catch((err) => {
+        logger.warn('VisionLoop', 'Heartbeat send failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }, VisionLoop.HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopInferenceHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   getStats(): VisionLoopStats {
@@ -343,8 +389,8 @@ export class VisionLoop extends EventEmitter {
     this.statsData.framesReceived++;
     this.latestFrameBase64 = data.toString('base64');
 
-    // Maintain frame history ring buffer
-    this.frameHistory.push(this.latestFrameBase64);
+    // Maintain frame history ring buffer with timestamps
+    this.frameHistory.push({ base64Data: this.latestFrameBase64, timestamp: Date.now() });
     if (this.frameHistory.length > this.config.frameHistorySize) {
       this.frameHistory.shift();
     }
@@ -362,15 +408,25 @@ export class VisionLoop extends EventEmitter {
 
   private async processFrame(jpegData: Buffer): Promise<void> {
     this.processingFrame = true;
+    this.startInferenceHeartbeat();
 
     try {
       const systemPrompt = this.compiler.getSystemPrompt(this.currentGoal);
       const frameCount = this.frameHistory.length;
+      const frameBase64s = this.frameHistory.map(f => f.base64Data);
+
+      // Log frame age for diagnostics
+      if (frameCount > 0) {
+        const oldestAge = Date.now() - this.frameHistory[0].timestamp;
+        const newestAge = Date.now() - this.frameHistory[frameCount - 1].timestamp;
+        logger.debug('VisionLoop', `Frame buffer: ${frameCount} frames, age ${oldestAge}ms→${newestAge}ms`);
+      }
+
       const userMessage = frameCount > 1
-        ? `This is a video of the last ${frameCount} frames of movement (oldest→newest). The goal is: ${this.currentGoal}. Use the visual differences between frames to gauge your velocity and 3D surroundings. Output the next 6-byte motor command.`
+        ? `This is a video of the last ${frameCount} frames of movement (oldest→newest, spanning ${Date.now() - this.frameHistory[0].timestamp}ms). The goal is: ${this.currentGoal}. Use the visual differences between frames to gauge your velocity and 3D surroundings. Output the next 6-byte motor command.`
         : 'What do you see? Output the next motor command.';
 
-      const vlmOutput = await this.infer(systemPrompt, userMessage, [...this.frameHistory]);
+      const vlmOutput = await this.infer(systemPrompt, userMessage, frameBase64s);
       this.statsData.inferenceCount++;
 
       const bytecode = this.compiler.compile(vlmOutput);
@@ -384,6 +440,7 @@ export class VisionLoop extends EventEmitter {
         appendTrace(this.currentGoal, vlmOutput, bytecode);
       }
     } finally {
+      this.stopInferenceHeartbeat();
       this.processingFrame = false;
     }
   }

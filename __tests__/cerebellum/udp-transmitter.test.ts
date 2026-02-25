@@ -144,4 +144,40 @@ describe('UDPTransmitter', () => {
     const frame = encodeFrame({ opcode: Opcode.GET_STATUS, paramLeft: 0, paramRight: 0 });
     await expect(transmitter.sendAndReceive(frame, 100)).rejects.toThrow('timeout');
   });
+
+  // ===========================================================================
+  // Sequence number & dropped frames
+  // ===========================================================================
+
+  test('tracks sequence number across sends', async () => {
+    await transmitter.connect();
+
+    const frame = encodeFrame({ opcode: Opcode.STOP, paramLeft: 0, paramRight: 0 });
+    await transmitter.send(frame);
+    await transmitter.send(frame);
+    await transmitter.send(frame);
+
+    const stats = transmitter.getStats();
+    expect(stats.currentSequence).toBe(3);
+  });
+
+  test('increments droppedFrames on sendAndReceive timeout', async () => {
+    await transmitter.connect();
+
+    const frame = encodeFrame({ opcode: Opcode.GET_STATUS, paramLeft: 0, paramRight: 0 });
+
+    // First timeout
+    await expect(transmitter.sendAndReceive(frame, 50)).rejects.toThrow('timeout');
+    // Second timeout
+    await expect(transmitter.sendAndReceive(frame, 50)).rejects.toThrow('timeout');
+
+    const stats = transmitter.getStats();
+    expect(stats.droppedFrames).toBe(2);
+  });
+
+  test('initial stats have zero sequence and dropped frames', async () => {
+    const stats = transmitter.getStats();
+    expect(stats.currentSequence).toBe(0);
+    expect(stats.droppedFrames).toBe(0);
+  });
 });

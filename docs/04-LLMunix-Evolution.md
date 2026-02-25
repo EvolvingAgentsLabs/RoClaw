@@ -80,7 +80,7 @@ Navigate to the kitchen
 SUCCESS — Reached kitchen in 12 frames (6 seconds)
 ```
 
-## The Dreaming Engine (Future)
+## The Dreaming Engine
 
 Between active operation periods, RoClaw can "dream" — reviewing traces, extracting patterns, and promoting them to skills. This is the LLMunix evolution loop:
 
@@ -89,4 +89,17 @@ Between active operation periods, RoClaw can "dream" — reviewing traces, extra
 3. **Promote**: Convert confirmed patterns to skills
 4. **Evolve**: Skills improve future operation
 
-This is not yet implemented in RoClaw V1. The infrastructure (directory structure, file format conventions) is in place for future development.
+### Usage
+
+```bash
+npm run dream
+```
+
+The Dreaming Engine (`scripts/dream.ts`) performs the following:
+
+1. Parses all `traces/trace_*.md` files into structured entries (timestamp, goal, bytecode)
+2. Extracts opcode sequences grouped by goal
+3. Finds 3-command sliding-window patterns that appear 3+ times
+4. Generates skill markdown files in `src/3_llmunix_memory/skills/`
+
+Skills follow the convention described in the Skills section above. The engine will not overwrite existing skill files, so manually curated skills are preserved.

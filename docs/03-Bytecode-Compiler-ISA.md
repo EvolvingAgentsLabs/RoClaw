@@ -85,6 +85,20 @@ EXAMPLES:
 
 The compiler extracts hex bytes from anywhere in the response.
 
+## STOP Holding Torque Mode
+
+The STOP opcode (`0x07`) supports an optional holding torque mode via `PARAM_L`:
+
+| PARAM_L | Behavior |
+|---------|----------|
+| `0x00` | Freewheel (default) — motor coils disabled to save power |
+| `0x01` | Hold — motor coils stay energized to maintain position |
+
+**Freewheel (default):** `AA 07 00 00 07 FF`
+**Hold torque:** `AA 07 01 00 06 FF`
+
+This is backward-compatible: existing STOP frames with `PARAM_L=0` behave identically to before.
+
 ### Mode 3: Host Fallback
 
 If the VLM outputs text like `FORWARD 100 100`, the host compiles it to bytecode. This is the most reliable but least elegant mode.
