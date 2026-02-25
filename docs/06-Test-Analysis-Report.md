@@ -28,12 +28,13 @@ RoClaw's test suite validates the full software stack from VLM inference to byte
 | Semantic Map Loop | `semantic-map-loop.test.ts` | 9 | No | Analysis interval, mutex, failure isolation, event emission |
 | Vision Loop | `vision-loop.test.ts` | 11 | No | Goal management, frame processing pipeline, history buffer |
 | RoClaw Tools | `roclaw-tools.test.ts` | 12 | No | All 9 OpenClaw tool handlers (explore, go_to, stop, status, etc.) |
+| Safety Config | `safety-config.test.ts` | 35 | No | Default configs, validation (DC & stepper), PWM/speed/step clamping with distance zones |
 | **Synthetic E2E** | **`semantic-map-synthetic.e2e.test.ts`** | **16** | **No** | **Full CoT pipeline with mock VLM: pre-filter, matching, planning, bytecode** |
 | Text E2E | `semantic-map.e2e.test.ts` | 19 | Yes | Full pipeline with real Qwen3-VL-8B on text scene descriptions |
 | Vision E2E | `semantic-map-vision.e2e.test.ts` | 10 | Yes | Real indoor photos through the full pipeline to bytecode |
 | Outdoor E2E | `semantic-map-outdoor.e2e.test.ts` | 8 | Yes | Real walking-route captures with compass heading through full pipeline |
 
-**Totals:** 184 tests (no API key), 37 additional tests (with API key) = **221 test cases**
+**Totals:** 219 tests (no API key), 37 additional tests (with API key) = **256 test cases**
 
 ### 2.2 The Four Layers of Validation
 
@@ -116,7 +117,7 @@ The VLM occasionally produces different feature sets for the same scene across r
 | Gap | Severity | Notes |
 |-----|----------|-------|
 | `inference.ts` has 0 unit tests | **Medium** | Tested indirectly through E2E tests; retry logic and error handling unverified at unit level |
-| `safety-config.ts` has 0 tests | **Medium** | Motor clamping functions (`clampMotorPWM`, `clampStepperSpeed`) are untested — these are critical for hardware safety |
+| ~~`safety-config.ts` has 0 tests~~ | ~~Medium~~ | **Resolved** — 35 tests cover default configs, both validators, and all 3 clamping functions including distance-based PWM zones |
 | MJPEG stream parsing | **Low** | VisionLoop's `connectToStream` is tested with mocks but not real HTTP streams |
 | Long-running stability | **Low** | No tests run for more than 10 minutes; real operation may surface memory leaks or state drift |
 
@@ -178,7 +179,7 @@ These are unlikely but possible:
 
 ### 6.1 Critical (Do Before Powering Motors)
 
-1. **Add safety-config.ts tests** — The motor clamping functions are untested. A bug here could damage motors or the robot. Write 10-15 tests covering `clampMotorPWM`, `clampStepperSpeed`, and `clampStepperSteps` with boundary values.
+1. ~~**Add safety-config.ts tests**~~ — **Done.** 35 tests in `__tests__/shared/safety-config.test.ts` cover all validators and clamping functions with boundary values.
 
 2. **Verify firmware frame parsing** — Flash the ESP32-S3, connect via serial monitor, and send known bytecode frames via UDP from a test script. Verify the firmware logs correct opcode/param values before connecting motors.
 
@@ -198,7 +199,7 @@ These are unlikely but possible:
 
 The RoClaw software stack is **well-tested and ready for hardware integration**. The Navigation Chain of Thought pipeline — the core innovation — is validated end-to-end with a real VLM producing real motor commands that compile to valid bytecode. The test suite covers the full path from scene understanding to wheel rotation at the bytecode level.
 
-The gap between "all tests pass" and "robot drives to the kitchen" is primarily **calibration and configuration**, not software correctness. The 194 passing tests (+ 37 API-gated tests) give strong confidence that:
+The gap between "all tests pass" and "robot drives to the kitchen" is primarily **calibration and configuration**, not software correctness. The 219 passing tests (+ 37 API-gated tests) give strong confidence that:
 
 - The bytecode format is correct and the ESP32 will understand it
 - The VLM produces sensible motor commands for indoor navigation
