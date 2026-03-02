@@ -112,6 +112,18 @@ The `_seeds/` directory contains 5 bootstrap strategies with `confidence: 0.3` (
 
 As the Dreaming Engine processes real traces, it either reinforces seeds (increasing confidence) or deprecates them.
 
+### Strategy Selection (Composite Scoring)
+
+When the planner queries `findStrategies(goal, level)`, strategies are scored using a weighted composite:
+
+| Factor | Weight | Description |
+|--------|--------|-------------|
+| Trigger match quality | 50% | Exact match (1.0) > substring (0.7) > word overlap (0.4) |
+| Confidence | 30% | The strategy's `confidence` field (0-1), updated by reinforcement and decay |
+| Success rate | 20% | `successCount / (successCount + failureCount)`, defaults to 0.5 for untested strategies |
+
+Strategies with a composite score below 0.2 are filtered out. The planner matches strategies **per step** — each step in a multi-step plan finds the best strategy for its own description rather than reusing a single strategy for all steps.
+
 ### Negative Constraints
 
 The `_negative_constraints.md` file accumulates anti-patterns extracted from failure traces — things the robot learned NOT to do. These are injected into the VisionLoop's system prompt alongside strategy hints.
@@ -149,7 +161,21 @@ Traces accumulate during operation in `traces/trace_YYYY-MM-DD.md`. The system s
 ---
 ```
 
-v2 traces add optional fields that v1 parsers skip — full backward compatibility is maintained. The `HierarchicalTraceLogger` class manages trace lifecycle:
+v2 traces add optional fields that v1 parsers skip — full backward compatibility is maintained.
+
+### REACTIVE Traces (Level 4)
+
+The VisionLoop automatically generates Level 4 REACTIVE traces by wrapping every 10 bytecodes in a windowed trace parented to the active higher-level trace. These give the Dreaming Engine motor-sequence-level data for pattern learning:
+
+- **On arrival** — the reactive trace closes as SUCCESS (the motor sequence achieved its sub-goal)
+- **On stuck/timeout** — the reactive trace closes as FAILURE (the motor sequence didn't work)
+- **On window complete** — the reactive trace closes as UNKNOWN and a new window opens
+
+This ensures the Dreaming Engine's REM phase has Level 4 traces with outcome data, enabling it to abstract successful motor patterns into reusable reactive strategies and extract negative constraints from failures.
+
+### Trace Lifecycle
+
+The `HierarchicalTraceLogger` class manages trace lifecycle:
 
 1. `startTrace(level, goal)` — Open a new trace with a unique ID
 2. `appendBytecode(traceId, vlmOutput, bytecode)` — Record each inference cycle

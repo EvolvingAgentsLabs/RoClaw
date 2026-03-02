@@ -88,4 +88,13 @@ The Cortex handles goal decomposition, planning, and navigation session manageme
 
 The **arrival event** is the critical feedback mechanism that closes the Cortex↔Cerebellum loop. When the VisionLoop compiles a STOP opcode (meaning the VLM decided the robot has arrived), it emits `'arrival'`. The Cortex's NavigationSession listens for this event and either advances the multi-step plan or declares the navigation complete. Without this, traces would never close with SUCCESS and multi-step plans would never advance past the first step.
 
+### Stuck Detection & Step Timeouts
+
+The Cerebellum also monitors for failure conditions during execution:
+
+- **Stuck detection** — If the VisionLoop produces 8 consecutive identical non-STOP opcodes, it emits a `'stuck'` event. This indicates the robot is repeating the same motor command without making progress (e.g., pushing into a wall).
+- **Step timeout** — If no arrival occurs within 45 seconds of starting a step, the VisionLoop emits a `'stepTimeout'` event.
+
+When either event fires, the Cortex's NavigationSession triggers a **step retry**: the current step trace is closed as PARTIAL, the planner re-plans the step with fresh scene context via `planStrategicStep()`, and the VisionLoop receives a new goal. After 2 failed retries, the entire navigation session is aborted as FAILURE. This produces trace data that the Dreaming Engine uses to learn negative constraints (what didn't work) and refine strategies.
+
 Path planning and localization live in the **Semantic Map** — a VLM-powered topological graph that runs as an async sidecar to the Cerebellum. It analyzes camera frames to build a map of locations (nodes) and navigation paths (edges), enabling re-identification of visited places and multi-hop pathfinding. See [LLMunix Evolution](04-LLMunix-Evolution.md) for details.

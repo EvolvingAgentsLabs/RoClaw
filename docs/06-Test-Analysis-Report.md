@@ -2,7 +2,7 @@
 
 **Date:** March 2, 2026
 **Branch:** main
-**Test Results:** 278 passed, 0 failures (without API key); 30 skipped (API-gated)
+**Test Results:** 284 passed, 0 failures (without API key); 30 skipped (API-gated)
 
 ---
 
@@ -26,8 +26,8 @@ RoClaw's test suite validates the full software stack from VLM inference to byte
 | Memory Manager | `memory-manager.test.ts` | 7 | No | Hardware profile, identity, skills, and traces load from disk |
 | Semantic Map (unit) | `semantic-map.test.ts` | 18 | No | PoseMap CRUD, deduplication, nearest-neighbor, persistence |
 | Semantic Map Loop | `semantic-map-loop.test.ts` | 9 | No | Analysis interval, mutex, failure isolation, event emission |
-| Vision Loop | `vision-loop.test.ts` | 13 | No | Goal management, frame processing pipeline, history buffer, arrival event emission |
-| RoClaw Tools | `roclaw-tools.test.ts` | 18 | No | All 9 OpenClaw tool handlers, navigation session lifecycle, trace closure, abort semantics |
+| Vision Loop | `vision-loop.test.ts` | 21 | No | Goal management, frame processing pipeline, history buffer, arrival events, stuck detection, step timeouts |
+| RoClaw Tools | `roclaw-tools.test.ts` | 30 | No | All 9 OpenClaw tool handlers, navigation session lifecycle, trace closure, abort semantics, multi-step plan integration |
 | Safety Config | `safety-config.test.ts` | 35 | No | Default configs, validation (DC & stepper), PWM/speed/step clamping with distance zones |
 | Hierarchical Trace Logger | `hierarchical-trace-logger.test.ts` | 11 | No | Trace lifecycle (start/append/end), hierarchy levels, outcomes, legacy compat |
 | Strategy Store | `strategy-store.test.ts` | 16 | No | YAML frontmatter parsing, keyword search, negative constraints, reinforcement |
@@ -38,7 +38,7 @@ RoClaw's test suite validates the full software stack from VLM inference to byte
 | Vision E2E | `semantic-map-vision.e2e.test.ts` | 10 | Yes | Real indoor photos through the full pipeline to bytecode |
 | Outdoor E2E | `semantic-map-outdoor.e2e.test.ts` | 8 | Yes | Real walking-route captures with compass heading through full pipeline |
 
-**Totals:** 278 tests (no API key), 30 skipped (with API key) = **308 test cases across 17 suites**
+**Totals:** 284 tests (no API key), 30 skipped (with API key) = **314 test cases across 17 suites**
 
 ### 2.2 The Four Layers of Validation
 
@@ -122,6 +122,8 @@ The VLM occasionally produces different feature sets for the same scene across r
 |-----|----------|-------|
 | `inference.ts` has 0 unit tests | **Medium** | Tested indirectly through E2E tests; retry logic and error handling unverified at unit level |
 | ~~`safety-config.ts` has 0 tests~~ | ~~Medium~~ | **Resolved** — 35 tests cover default configs, both validators, and all 3 clamping functions including distance-based PWM zones |
+| ~~No multi-step plan integration test~~ | ~~Medium~~ | **Resolved** — Integration tests prove the full plan(2 steps) → arrival → advance → arrival → SUCCESS → cleanup cycle |
+| ~~No stuck/timeout detection~~ | ~~Medium~~ | **Resolved** — Stuck detection (8 identical opcodes), step timeouts (45s), and step retry with re-planning are implemented and tested |
 | Dream Engine v2 with real LLM | **Low** | Tested with mocked inference; real LLM consolidation is validated by strategy file format tests |
 | MJPEG stream parsing | **Low** | VisionLoop's `connectToStream` is tested with mocks but not real HTTP streams |
 | Long-running stability | **Low** | No tests run for more than 10 minutes; real operation may surface memory leaks or state drift |
@@ -204,7 +206,7 @@ These are unlikely but possible:
 
 The RoClaw software stack is **well-tested and ready for hardware integration**. The Navigation Chain of Thought pipeline — the core innovation — is validated end-to-end with a real VLM producing real motor commands that compile to valid bytecode. The test suite covers the full path from scene understanding to wheel rotation at the bytecode level.
 
-The gap between "all tests pass" and "robot drives to the kitchen" is primarily **calibration and configuration**, not software correctness. The 278 passing tests (+ 30 API-gated tests) give strong confidence that:
+The gap between "all tests pass" and "robot drives to the kitchen" is primarily **calibration and configuration**, not software correctness. The 284 passing tests (+ 30 API-gated tests) give strong confidence that:
 
 - The bytecode format is correct and the ESP32 will understand it
 - The VLM produces sensible motor commands for indoor navigation

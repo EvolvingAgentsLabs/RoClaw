@@ -1,8 +1,9 @@
-import { handleTool, _resetTopoMap, _resetNavigationSession, _getTopoMapLoop, _getPoseMap, type ToolContext } from '../../src/1_openclaw_cortex/roclaw_tools';
+import { handleTool, _resetTopoMap, _resetNavigationSession, _getTopoMapLoop, _getPoseMap, _getMemoryManager, type ToolContext } from '../../src/1_openclaw_cortex/roclaw_tools';
 import { BytecodeCompiler, Opcode, formatHex } from '../../src/2_qwen_cerebellum/bytecode_compiler';
 import { UDPTransmitter } from '../../src/2_qwen_cerebellum/udp_transmitter';
 import { VisionLoop } from '../../src/2_qwen_cerebellum/vision_loop';
 import type { InferenceFunction } from '../../src/2_qwen_cerebellum/inference';
+import { HierarchyLevel } from '../../src/3_llmunix_memory/trace_types';
 
 describe('RoClaw Tools', () => {
   let ctx: ToolContext;
@@ -12,11 +13,20 @@ describe('RoClaw Tools', () => {
   let mockVisionLoopStart: jest.Mock;
   let mockVisionLoopStop: jest.Mock;
 
+  // Capture event callbacks registered via visionLoop.on()
+  let capturedArrivalCb: ((vlmOutput: string) => void) | null = null;
+  let capturedStuckCb: ((vlmOutput: string) => void) | null = null;
+  let capturedStepTimeoutCb: ((elapsed: number) => void) | null = null;
+
   beforeEach(() => {
     // Reset singletons so each test starts clean
     _resetNavigationSession();
     _resetTopoMap();
     _getPoseMap().clear();
+
+    capturedArrivalCb = null;
+    capturedStuckCb = null;
+    capturedStepTimeoutCb = null;
 
     const compiler = new BytecodeCompiler('fewshot');
 
@@ -47,7 +57,13 @@ describe('RoClaw Tools', () => {
       getActiveTraceId: () => null,
       setConstraints: jest.fn(),
       getConstraints: () => [],
-      on: jest.fn(),
+      setGoal: jest.fn(),
+      resetStepTimer: jest.fn(),
+      on: jest.fn().mockImplementation((event: string, cb: Function) => {
+        if (event === 'arrival') capturedArrivalCb = cb as any;
+        if (event === 'stuck') capturedStuckCb = cb as any;
+        if (event === 'stepTimeout') capturedStepTimeoutCb = cb as any;
+      }),
       removeListener: jest.fn(),
     } as unknown as VisionLoop;
 
@@ -359,6 +375,128 @@ describe('RoClaw Tools', () => {
       // Stop should clean up the session
       const result = await handleTool('robot.stop', {}, ctx);
       expect(result.success).toBe(true);
+      expect((ctx.visionLoop.removeListener as jest.Mock)).toHaveBeenCalledWith(
+        'arrival',
+        expect.any(Function),
+      );
+    });
+  });
+
+  // ===========================================================================
+  // Multi-step plan integration (arrival→advance→arrival→SUCCESS)
+  // ===========================================================================
+
+  describe('multi-step plan integration', () => {
+    let strategySpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      // Spy on MemoryManager so the planner finds strategies and calls the LLM
+      const mm = _getMemoryManager();
+      strategySpy = jest.spyOn(mm, 'findRelevantStrategies').mockImplementation((_goal, level) => {
+        if (level === HierarchyLevel.STRATEGY) {
+          return [{
+            id: 'test_strat',
+            version: 1,
+            hierarchyLevel: HierarchyLevel.STRATEGY,
+            title: 'Navigate via hallway',
+            triggerGoals: ['kitchen', 'navigate'],
+            preconditions: [],
+            steps: ['Go to hallway', 'Go to kitchen'],
+            negativeConstraints: [],
+            confidence: 0.5,
+            successCount: 0,
+            failureCount: 0,
+            sourceTraceIds: [],
+            deprecated: false,
+          }];
+        }
+        return [];
+      });
+    });
+
+    afterEach(() => {
+      strategySpy.mockRestore();
+    });
+
+    test('multi-step plan executes to completion via arrival events', async () => {
+      // Sequence mockInfer:
+      // 1. scene description for planGoal context
+      // 2. planGoal LLM → 2-step JSON plan
+      // 3+ planStrategicStep / scene descriptions → tactical goals
+      let callCount = 0;
+      mockInfer.mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          return 'I see a hallway with doors';
+        }
+        if (callCount === 2) {
+          return JSON.stringify({
+            steps: [
+              { description: 'Navigate to the hallway', targetLabel: 'hallway' },
+              { description: 'Navigate through hallway to kitchen', targetLabel: 'kitchen' },
+            ],
+          });
+        }
+        // Subsequent calls (planStrategicStep, scene descriptions for advance)
+        return JSON.stringify({
+          tacticalGoal: 'Move toward the kitchen door',
+          constraints: [],
+          strategyHint: 'Follow hallway',
+        });
+      });
+
+      const result = await handleTool('robot.go_to', { location: 'the kitchen' }, ctx);
+      expect(result.success).toBe(true);
+
+      // Verify arrival listener was registered
+      expect(capturedArrivalCb).not.toBeNull();
+
+      // Fire arrival for step 1
+      capturedArrivalCb!('Arrived at hallway');
+      // Flush multiple microtask cycles for the async advanceToNextStep chain
+      for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 0));
+
+      // Verify setGoal was called with step 2's goal
+      expect((ctx.visionLoop.setGoal as jest.Mock)).toHaveBeenCalled();
+
+      // Fire arrival for step 2 (plan complete)
+      capturedArrivalCb!('Arrived at kitchen');
+      for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 0));
+
+      // Plan is done: visionLoop.stop should have been called
+      expect(mockVisionLoopStop).toHaveBeenCalled();
+      // Listener cleanup
+      expect((ctx.visionLoop.removeListener as jest.Mock)).toHaveBeenCalledWith(
+        'arrival',
+        expect.any(Function),
+      );
+    });
+
+    test('arrival on single-step plan completes immediately', async () => {
+      let callCount = 0;
+      mockInfer.mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) return 'I see a room';
+        if (callCount === 2) {
+          return JSON.stringify({
+            steps: [{ description: 'Navigate to target', targetLabel: 'target' }],
+          });
+        }
+        return JSON.stringify({
+          tacticalGoal: 'Go to target',
+          constraints: [],
+          strategyHint: '',
+        });
+      });
+
+      await handleTool('robot.go_to', { location: 'the target' }, ctx);
+      expect(capturedArrivalCb).not.toBeNull();
+
+      // Single arrival should complete the plan
+      capturedArrivalCb!('Arrived at target');
+      for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 0));
+
+      expect(mockVisionLoopStop).toHaveBeenCalled();
       expect((ctx.visionLoop.removeListener as jest.Mock)).toHaveBeenCalledWith(
         'arrival',
         expect.any(Function),

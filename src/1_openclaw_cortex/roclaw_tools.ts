@@ -50,6 +50,9 @@ interface NavigationSession {
   currentStepTraceId: string | null;
   ctx: ToolContext;
   arrivalListener: (vlmOutput: string) => void;
+  stuckListener: (vlmOutput: string) => void;
+  stepTimeoutListener: (elapsed: number) => void;
+  retryCount: number;
 }
 
 let activeSession: NavigationSession | null = null;
@@ -110,8 +113,10 @@ function abortActiveSession(outcome: TraceOutcome, reason: string): void {
   const session = activeSession;
   activeSession = null;
 
-  // Remove arrival listener
+  // Remove all listeners
   session.ctx.visionLoop.removeListener('arrival', session.arrivalListener);
+  session.ctx.visionLoop.removeListener('stuck', session.stuckListener);
+  session.ctx.visionLoop.removeListener('stepTimeout', session.stepTimeoutListener);
 
   // Close current step trace
   if (session.currentStepTraceId) {
@@ -130,6 +135,8 @@ function abortActiveSession(outcome: TraceOutcome, reason: string): void {
 export function _resetNavigationSession(): void {
   if (activeSession) {
     activeSession.ctx.visionLoop.removeListener('arrival', activeSession.arrivalListener);
+    activeSession.ctx.visionLoop.removeListener('stuck', activeSession.stuckListener);
+    activeSession.ctx.visionLoop.removeListener('stepTimeout', activeSession.stepTimeoutListener);
   }
   activeSession = null;
   activeExploreTraceId = null;
@@ -235,6 +242,48 @@ export async function handleTool(
 }
 
 // ---------------------------------------------------------------------------
+// Step retry on stuck/timeout
+// ---------------------------------------------------------------------------
+
+async function handleStepRetry(session: NavigationSession, reason: string): Promise<void> {
+  const MAX_RETRIES = 2;
+  if (session.retryCount >= MAX_RETRIES) {
+    abortActiveSession(TraceOutcome.FAILURE, `${reason} after ${MAX_RETRIES} retries`);
+    return;
+  }
+  session.retryCount++;
+
+  // Close current step trace as PARTIAL
+  if (session.currentStepTraceId) {
+    traceLogger.endTrace(session.currentStepTraceId, TraceOutcome.PARTIAL, reason);
+  }
+
+  // Re-plan the current step with fresh scene context
+  const step = session.plan.steps[session.currentStepIndex];
+  const hp = ensurePlanner(session.ctx);
+  try {
+    let scene = 'Robot appears stuck';
+    const frame = session.ctx.visionLoop.getLatestFrameBase64();
+    if (frame) {
+      try {
+        scene = await session.ctx.infer(
+          'You are a stuck robot. Describe what you see and why you might be stuck.',
+          'Describe the scene.', [frame]);
+      } catch { /* optional */ }
+    }
+    const tactical = await hp.planStrategicStep(step, scene, session.plan.traceId);
+    session.currentStepTraceId = tactical.traceId;
+    const goal = tactical.constraints.length > 0
+      ? `${tactical.tacticalGoal}\nConstraints: ${tactical.constraints.join('; ')}`
+      : tactical.tacticalGoal;
+    session.ctx.visionLoop.setGoal(goal);
+    session.ctx.visionLoop.resetStepTimer();
+  } catch (err) {
+    abortActiveSession(TraceOutcome.FAILURE, `Re-plan failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Multi-step plan advancement
 // ---------------------------------------------------------------------------
 
@@ -254,6 +303,8 @@ async function advanceToNextStep(session: NavigationSession, vlmOutput: string):
     // All steps complete — close GOAL trace as SUCCESS
     traceLogger.endTrace(plan.traceId, TraceOutcome.SUCCESS, 'All steps completed');
     ctx.visionLoop.removeListener('arrival', session.arrivalListener);
+    ctx.visionLoop.removeListener('stuck', session.stuckListener);
+    ctx.visionLoop.removeListener('stepTimeout', session.stepTimeoutListener);
     ctx.visionLoop.stop();
     ctx.visionLoop.setActiveTraceId(null);
     ctx.visionLoop.setConstraints([]);
@@ -261,6 +312,10 @@ async function advanceToNextStep(session: NavigationSession, vlmOutput: string):
     logger.info('Tools', `Navigation plan completed: "${plan.mainGoal}"`);
     return;
   }
+
+  // More steps remain — reset retry count and step timer
+  session.retryCount = 0;
+  ctx.visionLoop.resetStepTimer();
 
   // More steps remain — plan the next one
   const nextStep = plan.steps[session.currentStepIndex];
@@ -567,11 +622,25 @@ async function handleGoTo(location: string, ctx: ToolContext, constraints?: stri
       });
     }
 
-    // Create NavigationSession with arrival listener for multi-step plan execution
+    // Create NavigationSession with arrival/stuck/timeout listeners
     if (plan) {
       const arrivalListener = (vlmOutput: string) => {
         if (activeSession) {
           advanceToNextStep(activeSession, vlmOutput).catch(err => {
+            abortActiveSession(TraceOutcome.FAILURE, err instanceof Error ? err.message : String(err));
+          });
+        }
+      };
+      const stuckListener = (vlmOutput: string) => {
+        if (activeSession) {
+          handleStepRetry(activeSession, 'Stuck: repeated identical commands').catch(err => {
+            abortActiveSession(TraceOutcome.FAILURE, err instanceof Error ? err.message : String(err));
+          });
+        }
+      };
+      const stepTimeoutListener = (elapsed: number) => {
+        if (activeSession) {
+          handleStepRetry(activeSession, `Step timeout (${Math.round(elapsed / 1000)}s)`).catch(err => {
             abortActiveSession(TraceOutcome.FAILURE, err instanceof Error ? err.message : String(err));
           });
         }
@@ -582,8 +651,13 @@ async function handleGoTo(location: string, ctx: ToolContext, constraints?: stri
         currentStepTraceId: null,
         ctx,
         arrivalListener,
+        stuckListener,
+        stepTimeoutListener,
+        retryCount: 0,
       };
       ctx.visionLoop.on('arrival', arrivalListener);
+      ctx.visionLoop.on('stuck', stuckListener);
+      ctx.visionLoop.on('stepTimeout', stepTimeoutListener);
     }
 
     return {

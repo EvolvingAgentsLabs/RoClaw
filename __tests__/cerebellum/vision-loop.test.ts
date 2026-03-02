@@ -234,6 +234,84 @@ describe('VisionLoop', () => {
     );
   });
 
+  // ===========================================================================
+  // Stuck detection
+  // ===========================================================================
+
+  test('emits stuck event after N identical non-STOP opcodes', async () => {
+    const mockSend = jest.fn().mockResolvedValue(undefined);
+    (transmitter as any).connected = true;
+    (transmitter as any).socket = { send: jest.fn() };
+    transmitter.send = mockSend;
+
+    // FORWARD opcode: AA 01 80 00 80 FF => MOVE_FORWARD
+    mockInfer.mockResolvedValue('FORWARD 128 128');
+
+    const stuckHandler = jest.fn();
+    visionLoop.on('stuck', stuckHandler);
+
+    // Process 8 frames with identical FORWARD command (STUCK_WINDOW = 8)
+    for (let i = 0; i < 8; i++) {
+      await visionLoop.processSingleFrame('base64imagedata');
+    }
+
+    expect(stuckHandler).toHaveBeenCalledTimes(1);
+    expect(stuckHandler).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  test('does NOT emit stuck for repeated STOP opcodes', async () => {
+    const mockSend = jest.fn().mockResolvedValue(undefined);
+    (transmitter as any).connected = true;
+    (transmitter as any).socket = { send: jest.fn() };
+    transmitter.send = mockSend;
+
+    mockInfer.mockResolvedValue('AA 07 00 00 07 FF');
+
+    const stuckHandler = jest.fn();
+    visionLoop.on('stuck', stuckHandler);
+
+    for (let i = 0; i < 10; i++) {
+      await visionLoop.processSingleFrame('base64imagedata');
+    }
+
+    expect(stuckHandler).not.toHaveBeenCalled();
+  });
+
+  test('emits stepTimeout after elapsed time', async () => {
+    const mockSend = jest.fn().mockResolvedValue(undefined);
+    (transmitter as any).connected = true;
+    (transmitter as any).socket = { send: jest.fn() };
+    transmitter.send = mockSend;
+
+    mockInfer.mockResolvedValue('FORWARD 128 128');
+
+    const timeoutHandler = jest.fn();
+    visionLoop.on('stepTimeout', timeoutHandler);
+
+    // Simulate step start time in the past (> 45s ago)
+    (visionLoop as any).stepStartTime = Date.now() - 50000;
+
+    await visionLoop.processSingleFrame('base64imagedata');
+
+    expect(timeoutHandler).toHaveBeenCalledTimes(1);
+    expect(timeoutHandler).toHaveBeenCalledWith(expect.any(Number));
+  });
+
+  test('resetStepTimer clears stuck state and resets timer', () => {
+    // Populate some opcodes
+    (visionLoop as any).recentOpcodes = [1, 1, 1, 1];
+    (visionLoop as any).stepStartTime = Date.now() - 99999;
+
+    visionLoop.resetStepTimer();
+
+    expect((visionLoop as any).recentOpcodes).toEqual([]);
+    expect((visionLoop as any).stepStartTime).toBeGreaterThan(Date.now() - 1000);
+  });
+
+  // ===========================================================================
+  // Frame history
+  // ===========================================================================
+
   test('frameHistorySize config limits buffer', () => {
     const smallHistoryLoop = new VisionLoop(
       { cameraUrl: 'http://127.0.0.1:80/stream', targetFPS: 2, frameHistorySize: 2 },

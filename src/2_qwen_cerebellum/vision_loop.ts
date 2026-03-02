@@ -13,6 +13,7 @@ import { logger } from '../shared/logger';
 import { BytecodeCompiler, Opcode, encodeFrame, decodeFrame, formatHex } from './bytecode_compiler';
 import { UDPTransmitter } from './udp_transmitter';
 import { appendTrace, traceLogger } from '../3_llmunix_memory/trace_logger';
+import { HierarchyLevel, TraceOutcome } from '../3_llmunix_memory/trace_types';
 import type { InferenceFunction } from './inference';
 
 // =============================================================================
@@ -80,6 +81,17 @@ export class VisionLoop extends EventEmitter {
   private activeTraceId: string | null = null;
   private activeConstraints: string[] = [];
 
+  // Stuck detection + step timeout
+  private recentOpcodes: number[] = [];
+  private static readonly STUCK_WINDOW = 8;
+  private static readonly STEP_TIMEOUT_MS = 45000;
+  private stepStartTime = 0;
+
+  // REACTIVE trace generation
+  private reactiveTraceId: string | null = null;
+  private reactiveBytecodesCount = 0;
+  private static readonly REACTIVE_TRACE_WINDOW = 10;
+
   // Heartbeat: keeps ESP32 alive during slow VLM inference (5-30s)
   private static readonly HEARTBEAT_INTERVAL_MS = 1500; // Under the 2000ms firmware timeout
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -121,6 +133,8 @@ export class VisionLoop extends EventEmitter {
     if (this.running) return;
     this.running = true;
     this.statsData.startTime = Date.now();
+    this.stepStartTime = Date.now();
+    this.recentOpcodes = [];
 
     if (goal) {
       this.currentGoal = goal;
@@ -136,6 +150,7 @@ export class VisionLoop extends EventEmitter {
   stop(): void {
     this.running = false;
     this.stopInferenceHeartbeat();
+    this.closeReactiveTrace(TraceOutcome.UNKNOWN, 'VisionLoop stopped');
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -183,6 +198,12 @@ export class VisionLoop extends EventEmitter {
     return [...this.activeConstraints];
   }
 
+  /** Reset step timer — called when NavigationSession advances to a new step. */
+  resetStepTimer(): void {
+    this.stepStartTime = Date.now();
+    this.recentOpcodes = [];
+  }
+
   /**
    * Process a single frame manually (for testing or single-shot mode).
    */
@@ -207,6 +228,31 @@ export class VisionLoop extends EventEmitter {
       const decoded = decodeFrame(bytecode);
       if (decoded && decoded.opcode === Opcode.STOP) {
         this.emit('arrival', vlmOutput);
+      }
+
+      // Stuck detection: N consecutive identical opcodes
+      if (decoded) {
+        this.recentOpcodes.push(decoded.opcode);
+        if (this.recentOpcodes.length > VisionLoop.STUCK_WINDOW) {
+          this.recentOpcodes.shift();
+        }
+        if (
+          this.recentOpcodes.length === VisionLoop.STUCK_WINDOW &&
+          this.recentOpcodes.every(op => op === this.recentOpcodes[0]) &&
+          decoded.opcode !== Opcode.STOP
+        ) {
+          this.emit('stuck', vlmOutput);
+          this.recentOpcodes = [];
+        }
+      }
+
+      // Step timeout: no arrival for too long
+      if (this.stepStartTime > 0 && decoded?.opcode !== Opcode.STOP) {
+        const elapsed = Date.now() - this.stepStartTime;
+        if (elapsed > VisionLoop.STEP_TIMEOUT_MS) {
+          this.emit('stepTimeout', elapsed);
+          this.stepStartTime = Date.now();
+        }
       }
 
       return bytecode;
@@ -475,6 +521,8 @@ export class VisionLoop extends EventEmitter {
 
         const decoded = decodeFrame(bytecode);
         if (decoded && decoded.opcode === Opcode.STOP) {
+          // Close any open reactive trace as SUCCESS on arrival
+          this.closeReactiveTrace(TraceOutcome.SUCCESS, 'Arrival detected');
           this.emit('arrival', vlmOutput);
         }
 
@@ -483,13 +531,65 @@ export class VisionLoop extends EventEmitter {
         // Hierarchical logging: use traceLogger if activeTraceId is set
         if (this.activeTraceId) {
           traceLogger.appendBytecode(this.activeTraceId, vlmOutput, bytecode);
+
+          // REACTIVE trace generation: wrap every N bytecodes in a Level 4 trace
+          if (!this.reactiveTraceId) {
+            this.reactiveTraceId = traceLogger.startTrace(
+              HierarchyLevel.REACTIVE,
+              `Motor sequence: ${this.currentGoal}`,
+              { parentTraceId: this.activeTraceId },
+            );
+            this.reactiveBytecodesCount = 0;
+          }
+          traceLogger.appendBytecode(this.reactiveTraceId, vlmOutput, bytecode);
+          this.reactiveBytecodesCount++;
+
+          if (this.reactiveBytecodesCount >= VisionLoop.REACTIVE_TRACE_WINDOW) {
+            traceLogger.endTrace(this.reactiveTraceId, TraceOutcome.UNKNOWN, 'Window complete');
+            this.reactiveTraceId = null;
+          }
         } else {
           appendTrace(this.currentGoal, vlmOutput, bytecode);
+        }
+
+        // Stuck detection: N consecutive identical opcodes
+        if (decoded) {
+          this.recentOpcodes.push(decoded.opcode);
+          if (this.recentOpcodes.length > VisionLoop.STUCK_WINDOW) {
+            this.recentOpcodes.shift();
+          }
+          if (
+            this.recentOpcodes.length === VisionLoop.STUCK_WINDOW &&
+            this.recentOpcodes.every(op => op === this.recentOpcodes[0]) &&
+            decoded.opcode !== Opcode.STOP
+          ) {
+            this.closeReactiveTrace(TraceOutcome.FAILURE, 'Stuck: repeated identical commands');
+            this.emit('stuck', vlmOutput);
+            this.recentOpcodes = [];
+          }
+        }
+
+        // Step timeout: no arrival for too long
+        if (this.stepStartTime > 0 && decoded?.opcode !== Opcode.STOP) {
+          const elapsed = Date.now() - this.stepStartTime;
+          if (elapsed > VisionLoop.STEP_TIMEOUT_MS) {
+            this.closeReactiveTrace(TraceOutcome.FAILURE, 'Step timeout');
+            this.emit('stepTimeout', elapsed);
+            this.stepStartTime = Date.now(); // reset to avoid spam
+          }
         }
       }
     } finally {
       this.stopInferenceHeartbeat();
       this.processingFrame = false;
+    }
+  }
+
+  private closeReactiveTrace(outcome: TraceOutcome, reason: string): void {
+    if (this.reactiveTraceId) {
+      traceLogger.endTrace(this.reactiveTraceId, outcome, reason);
+      this.reactiveTraceId = null;
+      this.reactiveBytecodesCount = 0;
     }
   }
 

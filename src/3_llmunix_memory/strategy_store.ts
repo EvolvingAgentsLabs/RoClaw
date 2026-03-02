@@ -226,7 +226,7 @@ export class StrategyStore {
 
   /**
    * Find strategies matching a goal at a given level.
-   * Uses keyword matching against triggerGoals.
+   * Scores by trigger match quality (50%), confidence (30%), and success rate (20%).
    */
   findStrategies(goal: string, level: HierarchyLevel, _context?: string): Strategy[] {
     const all = this.getStrategiesForLevel(level);
@@ -235,23 +235,47 @@ export class StrategyStore {
     const goalLower = goal.toLowerCase();
     const goalWords = goalLower.split(/\s+/).filter(w => w.length > 2);
 
-    return all
-      .filter(s => {
-        // Check if any trigger goal keyword matches
-        for (const trigger of s.triggerGoals) {
-          const triggerLower = trigger.toLowerCase();
-          if (goalLower.includes(triggerLower) || triggerLower.includes(goalLower)) return true;
-          // Word-level overlap
+    const scored: Array<{ strategy: Strategy; score: number }> = [];
+
+    for (const s of all) {
+      // Trigger match quality (0-1): exact > substring > word overlap
+      let triggerScore = 0;
+      for (const trigger of s.triggerGoals) {
+        const triggerLower = trigger.toLowerCase();
+        if (goalLower === triggerLower) {
+          triggerScore = Math.max(triggerScore, 1.0);
+        } else if (goalLower.includes(triggerLower) || triggerLower.includes(goalLower)) {
+          triggerScore = Math.max(triggerScore, 0.7);
+        } else {
           const triggerWords = triggerLower.split(/\s+/);
           for (const tw of triggerWords) {
             if (tw.length > 2 && goalWords.some(gw => gw.includes(tw) || tw.includes(gw))) {
-              return true;
+              triggerScore = Math.max(triggerScore, 0.4);
             }
           }
         }
-        return false;
-      })
-      .sort((a, b) => b.confidence - a.confidence);
+      }
+
+      if (triggerScore === 0) continue;
+
+      // Confidence (0-1)
+      const confidenceScore = s.confidence;
+
+      // Success rate (0-1)
+      const totalUses = s.successCount + s.failureCount;
+      const successRate = totalUses > 0 ? s.successCount / totalUses : 0.5;
+
+      // Composite: 50% trigger, 30% confidence, 20% success rate
+      const composite = triggerScore * 0.5 + confidenceScore * 0.3 + successRate * 0.2;
+
+      if (composite >= 0.2) {
+        scored.push({ strategy: s, score: composite });
+      }
+    }
+
+    return scored
+      .sort((a, b) => b.score - a.score)
+      .map(s => s.strategy);
   }
 
   /**

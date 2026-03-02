@@ -177,13 +177,19 @@ export class HierarchicalPlanner {
         };
       }
 
-      const steps: PlanStep[] = parsed.steps.map(s => ({
-        level: HierarchyLevel.STRATEGY,
-        description: s.description,
-        targetLabel: s.targetLabel ?? undefined,
-        strategy: routeStrategies.length > 0 ? routeStrategies[0] : undefined,
-        constraints: negativeConstraints.map(nc => nc.description),
-      }));
+      const steps: PlanStep[] = parsed.steps.map(s => {
+        // Find best strategy for THIS step's description (not the main goal)
+        const stepStrategies = this.memoryManager.findRelevantStrategies(
+          s.description, HierarchyLevel.STRATEGY,
+        );
+        return {
+          level: HierarchyLevel.STRATEGY,
+          description: s.description,
+          targetLabel: s.targetLabel ?? undefined,
+          strategy: stepStrategies.length > 0 ? stepStrategies[0] : undefined,
+          constraints: negativeConstraints.map(nc => nc.description),
+        };
+      });
 
       logger.info('Planner', `Planned ${steps.length} steps for "${mainGoal}"`);
       return { mainGoal, traceId, steps, negativeConstraints };

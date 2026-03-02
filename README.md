@@ -182,6 +182,11 @@ Strategies are stored as markdown with YAML frontmatter in `src/3_llmunix_memory
 
 ## Recent Improvements
 
+- **Stuck Detection & Step Timeouts** — VisionLoop detects repeated identical opcodes (stuck) and step-level timeouts (45s), emitting events that trigger automatic retry with re-planning
+- **Step Retry with Re-Planning** — NavigationSession retries stuck/timed-out steps up to 2x, re-planning via `planStrategicStep()` with fresh scene context before aborting
+- **REACTIVE Trace Generation** — VisionLoop now wraps every 10 bytecodes in a Level 4 REACTIVE trace, giving the Dreaming Engine motor-level data for pattern learning
+- **Composite Strategy Scoring** — `findStrategies()` scores by trigger match quality (50%), confidence (30%), and success rate (20%) instead of keyword filter + confidence sort
+- **Per-Step Strategy Matching** — Planner matches the best strategy for each individual step's description, not the same strategy for all steps
 - **Arrival Feedback Loop** — VisionLoop emits `'arrival'` on STOP opcode, closing the Cortex↔Cerebellum loop: multi-step plans auto-advance, traces close with SUCCESS, and `planStrategicStep()` decomposes each step
 - **Hierarchical Planning** — 4-tier cognitive architecture with strategy-informed goal decomposition
 - **Strategy Store** — Hierarchical memory system with per-level strategies and negative constraints
