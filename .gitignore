@@ -10,5 +10,10 @@ src/3_llmunix_memory/traces/semantic_map.json
 src/3_llmunix_memory/traces/topo_map.json
 src/3_llmunix_memory/traces/trace_*.md
 
+# Learned strategies (keep seeds in git, learned ones are runtime data)
+src/3_llmunix_memory/strategies/level_*/strat_*.md
+src/3_llmunix_memory/strategies/_negative_constraints.md
+!src/3_llmunix_memory/strategies/_seeds/
+
 # Outdoor route frame images (too large for git — each developer captures their own)
 __tests__/navigation/fixtures/outdoor_routes/*/

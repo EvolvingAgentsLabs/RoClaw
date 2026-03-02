@@ -13,6 +13,9 @@ import type { InferenceFunction } from '../2_qwen_cerebellum/inference';
 import { MemoryManager } from '../3_llmunix_memory/memory_manager';
 import { PoseMap, SemanticMap } from '../3_llmunix_memory/semantic_map';
 import { SemanticMapLoop } from '../3_llmunix_memory/semantic_map_loop';
+import { HierarchicalPlanner } from './planner';
+import { HierarchyLevel, TraceOutcome } from '../3_llmunix_memory/trace_types';
+import { traceLogger } from '../3_llmunix_memory/trace_logger';
 
 // =============================================================================
 // Types
@@ -38,6 +41,14 @@ const poseMap = new PoseMap();
 // Lazy-initialized — requires InferenceFunction which isn't available at module load
 let topoMap: SemanticMap | null = null;
 let topoMapLoop: SemanticMapLoop | null = null;
+let planner: HierarchicalPlanner | null = null;
+
+function ensurePlanner(ctx: ToolContext): HierarchicalPlanner {
+  if (!planner) {
+    planner = new HierarchicalPlanner(ctx.infer, memoryManager);
+  }
+  return planner;
+}
 
 function ensureTopoMap(ctx: ToolContext): SemanticMap {
   if (!topoMap) {
@@ -85,6 +96,7 @@ export function _resetTopoMap(): void {
   topoMapLoop?.stop();
   topoMapLoop = null;
   topoMap = null;
+  planner = null;
 }
 
 // =============================================================================
@@ -185,10 +197,21 @@ async function handleReadMemory(): Promise<ToolResult> {
   logger.info('Tools', 'robot.read_memory invoked');
 
   const content = memoryManager.getFullContext();
+
+  // Check which strategy levels are populated
+  const hasStrategicSkills = memoryManager.getStrategiesForLevel(HierarchyLevel.STRATEGY).length > 0;
+  const hasTacticalSkills = memoryManager.getStrategiesForLevel(HierarchyLevel.TACTICAL).length > 0;
+  const hasReactiveSkills = memoryManager.getStrategiesForLevel(HierarchyLevel.REACTIVE).length > 0;
+
   return {
     success: true,
     message: content || 'No memory files found.',
-    data: { type: 'memory' },
+    data: {
+      type: 'memory',
+      hasStrategicSkills,
+      hasTacticalSkills,
+      hasReactiveSkills,
+    },
   };
 }
 
@@ -196,9 +219,36 @@ async function handleExplore(ctx: ToolContext, constraints?: string): Promise<To
   logger.info('Tools', 'robot.explore invoked', constraints ? { constraints } : undefined);
 
   const baseGoal = 'Explore the environment. Move forward when the path is clear. Turn to avoid obstacles. Look for interesting objects.';
-  const goal = constraints ? `${baseGoal}\nConstraints: ${constraints}` : baseGoal;
+
+  // Inject reactive strategies and constraints from memory
+  const memoryConstraints: string[] = [];
+  try {
+    const reactiveStrategies = memoryManager.findRelevantStrategies('explore', HierarchyLevel.REACTIVE);
+    if (reactiveStrategies.length > 0) {
+      for (const strat of reactiveStrategies.slice(0, 3)) {
+        memoryConstraints.push(`[${strat.title}]: ${strat.steps.join(', ')}`);
+      }
+    }
+    const negConstraints = memoryManager.getNegativeConstraints();
+    for (const nc of negConstraints.slice(0, 5)) {
+      memoryConstraints.push(`AVOID: ${nc.description}`);
+    }
+  } catch {
+    // Memory is optional
+  }
+
+  const allConstraints = constraints
+    ? [...memoryConstraints, constraints]
+    : memoryConstraints;
+  const goal = allConstraints.length > 0
+    ? `${baseGoal}\nConstraints: ${allConstraints.join('; ')}`
+    : baseGoal;
 
   try {
+    if (memoryConstraints.length > 0) {
+      ctx.visionLoop.setConstraints(memoryConstraints);
+    }
+
     await ctx.visionLoop.start(goal);
 
     // Start topological mapping in the background
@@ -229,7 +279,57 @@ async function handleGoTo(location: string, ctx: ToolContext, constraints?: stri
 
   logger.info('Tools', `robot.go_to: ${location}`, constraints ? { constraints } : undefined);
 
-  // Try VLM-powered topological navigation first
+  // --- Hierarchical Planning (v2) ---
+  // Try to plan via the hierarchical planner first. If it produces a multi-step
+  // plan with strategies, inject them. Otherwise fall through to existing logic.
+  let plannerHint = '';
+  let planConstraints: string[] = [];
+  let activeTraceId: string | null = null;
+
+  try {
+    const hp = ensurePlanner(ctx);
+
+    // Get current scene for planning context
+    let currentScene: string | undefined;
+    const frameBase64 = ctx.visionLoop.getLatestFrameBase64();
+    if (frameBase64) {
+      try {
+        currentScene = await ctx.infer(
+          'You are a robot with a camera. Briefly describe what you see.',
+          'Describe the current scene.',
+          [frameBase64],
+        );
+      } catch { /* scene description is optional */ }
+    }
+
+    const plan = await hp.planGoal(location, currentScene);
+    activeTraceId = plan.traceId;
+
+    if (plan.steps.length > 0) {
+      // Collect constraints from all steps
+      for (const step of plan.steps) {
+        planConstraints.push(...step.constraints);
+      }
+      // Deduplicate
+      planConstraints = [...new Set(planConstraints)];
+
+      // Build strategy hint from first step
+      const firstStep = plan.steps[0];
+      if (firstStep.strategy) {
+        plannerHint = ` [Strategy: "${firstStep.strategy.title}" — ${firstStep.strategy.steps.join(' → ')}]`;
+      }
+      if (plan.steps.length > 1) {
+        const stepDescs = plan.steps.map((s, i) => `${i + 1}. ${s.description}`).join(', ');
+        plannerHint += ` [Plan: ${stepDescs}]`;
+      }
+    }
+  } catch (err) {
+    logger.debug('Tools', 'Hierarchical planning unavailable, falling back', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // --- Topo Navigation (existing) ---
   let topoNavHint = '';
   try {
     const sm = ensureTopoMap(ctx);
@@ -254,7 +354,7 @@ async function handleGoTo(location: string, ctx: ToolContext, constraints?: stri
     });
   }
 
-  // Fall back to PoseMap for coordinate-based hint
+  // --- PoseMap fallback (existing) ---
   const knownLocation = poseMap.findNearest(location);
   let baseGoal: string;
   let navHint = '';
@@ -269,9 +369,23 @@ async function handleGoTo(location: string, ctx: ToolContext, constraints?: stri
     logger.info('Tools', `No semantic map entry for "${location}", exploring`);
   }
 
-  const goal = constraints ? `${baseGoal}\nConstraints: ${constraints}` : baseGoal;
+  // Merge constraints from planner + user
+  const allConstraints = constraints
+    ? [...planConstraints, constraints]
+    : planConstraints;
+  const goal = allConstraints.length > 0
+    ? `${baseGoal}\nConstraints: ${allConstraints.join('; ')}`
+    : baseGoal;
 
   try {
+    // Set hierarchical tracing on VisionLoop
+    if (activeTraceId) {
+      ctx.visionLoop.setActiveTraceId(activeTraceId);
+    }
+    if (planConstraints.length > 0) {
+      ctx.visionLoop.setConstraints(planConstraints);
+    }
+
     await ctx.visionLoop.start(goal);
 
     // Start topological mapping alongside navigation
@@ -285,9 +399,14 @@ async function handleGoTo(location: string, ctx: ToolContext, constraints?: stri
 
     return {
       success: true,
-      message: `Navigation started toward "${location}".${navHint}${topoNavHint}`,
+      message: `Navigation started toward "${location}".${navHint}${topoNavHint}${plannerHint}`,
     };
   } catch (error) {
+    // End trace as failed if we started one
+    if (activeTraceId) {
+      traceLogger.endTrace(activeTraceId, TraceOutcome.FAILURE,
+        error instanceof Error ? error.message : String(error));
+    }
     return {
       success: false,
       message: `Failed to start navigation: ${error instanceof Error ? error.message : String(error)}`,

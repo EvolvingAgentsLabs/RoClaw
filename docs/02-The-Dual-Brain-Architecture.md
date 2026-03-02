@@ -54,13 +54,34 @@ The critical path is the Cerebellum's reactive loop:
 
 At ~4 FPS, the robot can react to obstacles in real-time. This is fast enough for a robot moving at 4.7 cm/s — it travels less than 2cm between decisions.
 
-## The Cortex is Thin
+## The 4-Tier Cognitive Hierarchy
 
-The Cortex is intentionally minimal. It:
+The dual-brain design extends into a 4-tier cognitive hierarchy that bridges high-level goals to reactive motor control:
+
+```
+Level 1: MAIN GOAL (Cortex)           "Fetch me a drink"
+    |                                   Queries strategies, decomposes into sub-goals
+    v
+Level 2: STRATEGIC PLAN               "Traverse hallway → kitchen"
+    |                                   Uses route strategies from memory
+    v
+Level 3: TACTICAL PLAN                "Door blocked. Route around couch."
+    |                                   Strategy-informed navigation
+    v
+Level 4: REACTIVE EXECUTION           Sub-second motor corrections (bytecodes)
+                                       Constraint-aware VisionLoop
+```
+
+The **Hierarchical Planner** (`src/1_openclaw_cortex/planner.ts`) sits in the Cortex and queries the memory system for strategies relevant to the current goal. It decomposes goals into multi-step plans, injecting strategy hints and negative constraints into each step. When no strategies exist yet, it gracefully falls through to the existing PoseMap/TopoMap navigation.
+
+## The Cortex
+
+The Cortex handles goal decomposition and planning:
 
 1. Receives a tool invocation from OpenClaw
-2. Translates it to a Cerebellum goal string
-3. Starts/stops the vision loop
-4. Reports results back to OpenClaw
+2. Queries the **Hierarchical Planner** for a multi-step plan (if strategies exist)
+3. Injects strategy hints and negative constraints into the Cerebellum's goal
+4. Starts/stops the vision loop with trace IDs for hierarchical logging
+5. Reports results back to OpenClaw
 
 Path planning and localization live in the **Semantic Map** — a VLM-powered topological graph that runs as an async sidecar to the Cerebellum. It analyzes camera frames to build a map of locations (nodes) and navigation paths (edges), enabling re-identification of visited places and multi-hop pathfinding. See [LLMunix Evolution](04-LLMunix-Evolution.md) for details.

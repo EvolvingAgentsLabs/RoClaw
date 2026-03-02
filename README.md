@@ -20,12 +20,15 @@ RoClaw uses a biological dual-brain design: a slow-thinking **Cortex** for strat
 graph TD
     USER[User via WhatsApp/Voice] -->|"Go check the kitchen"| OC[OpenClaw Gateway]
     OC -->|WebSocket| CORTEX[1. Cortex — OpenClaw Node]
-    CORTEX -->|"Goal: navigate_to kitchen"| CEREBELLUM[2. Cerebellum — Local Qwen-VL]
+    CORTEX -->|"Plan: hallway → kitchen"| PLANNER[Hierarchical Planner]
+    PLANNER -->|"Strategy-informed goal"| CEREBELLUM[2. Cerebellum — Local Qwen-VL]
     CEREBELLUM -->|"Sees camera frame"| COMPILE[Bytecode Compiler]
     COMPILE -->|"AA 01 64 64 CB FF"| ESP[ESP32-S3 Steppers]
     ESP -->|"Robot moves"| WORLD((Physical World))
     CEREBELLUM -->|"Experience trace"| MEMORY[3. LLMunix Memory]
-    MEMORY -.->|"Learned skills (Phase 2)"| CORTEX
+    MEMORY -->|"Strategies + constraints"| PLANNER
+    MEMORY -.->|"npm run dream"| DREAM[Dreaming Engine v2]
+    DREAM -.->|"Consolidated strategies"| MEMORY
 ```
 
 ### The Trinity
@@ -142,14 +145,52 @@ Bytecode (6 bytes):  AA 01 64 64 CB FF
 | `0x10` | LED_SET | R, G |
 | `0xFE` | RESET | - |
 
+## 4-Tier Cognitive Architecture
+
+RoClaw uses a biologically-inspired hierarchical planning system that decomposes high-level goals into reactive motor commands:
+
+```
+Level 1: MAIN GOAL (Cortex)           "Fetch me a drink"
+    |                                   Queries strategies, decomposes into sub-goals
+    v
+Level 2: STRATEGIC PLAN               "Traverse hallway → kitchen"
+    |                                   Uses route strategies from memory
+    v
+Level 3: TACTICAL PLAN                "Door blocked. Route around couch."
+    |                                   Strategy-informed navigation
+    v
+Level 4: REACTIVE EXECUTION           Sub-second motor corrections (bytecodes)
+                                       Constraint-aware VisionLoop
+```
+
+The **Hierarchical Planner** queries the memory system for relevant strategies and negative constraints (things the robot learned NOT to do), then injects them into the VisionLoop's system prompt. When no strategies exist yet, it gracefully degrades to the existing PoseMap/TopoMap navigation.
+
+## Dreaming Engine
+
+Between active operation, RoClaw "dreams" — consolidating execution traces into reusable strategies using LLM-powered analysis modeled on biological sleep:
+
+1. **Slow Wave Sleep** — Replay traces, extract failure constraints, prune low-confidence sequences
+2. **REM Sleep** — Abstract successful trace patterns into reusable strategies (or merge with existing ones)
+3. **Consolidation** — Write strategies to disk, generate a dream journal entry, prune old traces
+
+```bash
+npm run dream    # LLM-powered 3-phase consolidation (v2)
+npm run dream:v1 # Original statistical pattern extraction
+```
+
+Strategies are stored as markdown with YAML frontmatter in `src/3_llmunix_memory/strategies/`, organized by hierarchy level. Seed strategies provide useful baselines before any real traces exist.
+
 ## Recent Improvements
 
+- **Hierarchical Planning** — 4-tier cognitive architecture with strategy-informed goal decomposition
+- **Strategy Store** — Hierarchical memory system with per-level strategies and negative constraints
+- **Dreaming Engine v2** — LLM-powered 3-phase memory consolidation (SWS → REM → Consolidation)
+- **Seed Strategies** — Cold-start bootstrap behaviors (obstacle avoidance, wall following, doorway approach)
 - **Inference Heartbeat** — GET_STATUS keepalive during slow VLM inference prevents ESP32 timeout
 - **Feature Pre-Filter** — Jaccard similarity pre-filter skips obviously-different map nodes, reducing VLM API calls
 - **Permissive Compiler** — Text commands with trailing punctuation, commas, or markdown formatting now compile
 - **Frame Timestamps** — Frame history tracks capture time; `flushFrameHistory()` clears stale frames after emergency stop
 - **UDP Diagnostics** — Sequence numbers and dropped-frame counter for reliability monitoring
-- **Dreaming Engine** — `npm run dream` extracts recurring motor patterns from traces and promotes them to skills
 - **ESP32 IP Filtering** — Optional `CORTEX_IP` allowlist on firmware rejects unauthorized UDP senders
 
 ## Quickstart
@@ -200,28 +241,39 @@ A 20cm 3D-printed cube with two stepper motors and a camera.
 RoClaw/
 ├── src/
 │   ├── 1_openclaw_cortex/       # LLM 1: OpenClaw Gateway Node
+│   │   ├── roclaw_tools.ts      #   Tool handlers (explore, go_to, stop, etc.)
+│   │   └── planner.ts           #   Hierarchical goal decomposition
 │   ├── 2_qwen_cerebellum/       # LLM 2: VLM Motor Controller
+│   │   ├── vision_loop.ts       #   Camera → VLM → bytecode → ESP32 cycle
+│   │   └── bytecode_compiler.ts #   VLM output → 6-byte binary frames
 │   ├── 3_llmunix_memory/        # Dreaming Engine & Memory
+│   │   ├── trace_types.ts       #   Shared types (hierarchy levels, outcomes)
+│   │   ├── trace_logger.ts      #   Hierarchical execution trace recorder
+│   │   ├── strategy_store.ts    #   Read/write hierarchical strategy files
+│   │   ├── memory_manager.ts    #   Strategy-aware memory context
+│   │   ├── semantic_map.ts      #   VLM-powered topological graph
+│   │   ├── dream_inference.ts   #   LLM adapter for dreaming engine
+│   │   └── strategies/          #   Hierarchical strategies (4 levels + seeds)
 │   └── shared/                  # Kinematics, safety, logger
 ├── 4_somatic_firmware/          # C++ for ESP32 MCUs
 ├── 5_hardware_cad/              # STL files & Blender scene
 ├── scripts/
-│   └── dream.ts                    # Dreaming Engine — pattern extraction
+│   ├── dream.ts                 # Dreaming Engine v2 — LLM-powered consolidation
+│   └── dream_v1.ts              # Dreaming Engine v1 — statistical patterns
 ├── docs/                        # Architecture documentation
 └── __tests__/
-    └── navigation/
-        ├── semantic-map.e2e.test.ts             # Text-based E2E tests
-        ├── semantic-map-vision.e2e.test.ts      # Vision E2E tests (real images)
-        ├── semantic-map-outdoor.e2e.test.ts     # Outdoor route E2E tests
-        ├── semantic-map-synthetic.e2e.test.ts   # Synthetic E2E tests (no API key)
-        └── fixtures/indoor_scenes/              # CC0 room photographs
+    ├── cortex/                  # Planner + tool handler tests
+    ├── cerebellum/              # Vision loop, compiler, UDP tests
+    ├── memory/                  # Strategy store, trace logger, semantic map
+    ├── dream/                   # Dreaming Engine v2 tests
+    └── navigation/              # E2E tests (text, vision, outdoor, synthetic)
 ```
 
 The numbered folders encode the architecture:
 
-1. **Cortex** — The slow thinker. Receives "go to the kitchen" from OpenClaw, translates to a Cerebellum goal.
-2. **Cerebellum** — The fast reactor. Sees camera frames, outputs bytecode motor commands at 2 FPS.
-3. **LLMunix Memory** — The dreamer. Stores hardware specs, learned skills, execution traces, and the semantic map (topological memory for navigation).
+1. **Cortex** — The slow thinker. Receives "go to the kitchen" from OpenClaw, decomposes it into a multi-step plan using the Hierarchical Planner and learned strategies.
+2. **Cerebellum** — The fast reactor. Sees camera frames, outputs constraint-aware bytecode motor commands at 2 FPS.
+3. **LLMunix Memory** — The dreamer. Stores hardware specs, hierarchical strategies (4 levels), negative constraints, execution traces, and the semantic map. The Dreaming Engine consolidates traces into strategies offline.
 4. **Somatic Firmware** — The spinal cord. Bytecode-only UDP listener on ESP32-S3. MJPEG streamer on ESP32-CAM.
 5. **Hardware CAD** — The body. 3D-printable parts and assembly reference.
 

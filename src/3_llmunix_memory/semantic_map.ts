@@ -527,22 +527,33 @@ export class SemanticMap {
 
   /**
    * Given the current scene and a target location label, decide the next action.
+   * Optionally accepts strategy hints and constraints from the hierarchical planner.
    */
   async planNavigation(
     currentScene: string,
     targetLabel: string,
+    strategyHint?: string,
+    constraints?: string[],
   ): Promise<NavigationDecision | null> {
     const mapSummary = this.getMapSummary();
-    const prompt = [
+    const promptParts = [
       `Current scene: ${currentScene}`,
       '',
       `Target destination: ${targetLabel}`,
       '',
       'Known map:',
       mapSummary,
-      '',
-      'What motor action should the robot take to navigate toward the target?',
-    ].join('\n');
+    ];
+
+    if (strategyHint) {
+      promptParts.push('', `Strategy hint: ${strategyHint}`);
+    }
+    if (constraints && constraints.length > 0) {
+      promptParts.push('', 'Active constraints:', ...constraints.map(c => `- ${c}`));
+    }
+
+    promptParts.push('', 'What motor action should the robot take to navigate toward the target?');
+    const prompt = promptParts.join('\n');
 
     const response = await this.infer(NAVIGATION_SYSTEM, prompt);
     return parseJSONSafe<NavigationDecision>(response);

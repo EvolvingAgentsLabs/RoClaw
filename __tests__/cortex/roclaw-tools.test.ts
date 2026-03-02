@@ -42,6 +42,10 @@ describe('RoClaw Tools', () => {
       isRunning: () => false,
       getGoal: () => 'test',
       getLatestFrameBase64: () => 'dGVzdGZyYW1l',
+      setActiveTraceId: jest.fn(),
+      getActiveTraceId: () => null,
+      setConstraints: jest.fn(),
+      getConstraints: () => [],
       on: jest.fn(),
       removeListener: jest.fn(),
     } as unknown as VisionLoop;
@@ -66,7 +70,7 @@ describe('RoClaw Tools', () => {
     test('returns memory content with data.type === memory', async () => {
       const result = await handleTool('robot.read_memory', {}, ctx);
       expect(result.success).toBe(true);
-      expect(result.data).toEqual({ type: 'memory' });
+      expect(result.data).toMatchObject({ type: 'memory' });
       expect(result.message).toContain('Hardware');
       expect(result.message).toContain('RoClaw');
     });
@@ -93,7 +97,7 @@ describe('RoClaw Tools', () => {
       );
       expect(result.success).toBe(true);
       const goal = mockVisionLoopStart.mock.calls[0][0] as string;
-      expect(goal).toContain('Constraints: Max speed 4.7 cm/s. Stay centered.');
+      expect(goal).toContain('Max speed 4.7 cm/s. Stay centered.');
       expect(goal).toContain('Explore');
     });
 
@@ -142,7 +146,7 @@ describe('RoClaw Tools', () => {
       expect(result.success).toBe(true);
       const goal = mockVisionLoopStart.mock.calls[0][0] as string;
       expect(goal).toContain('the door');
-      expect(goal).toContain('Constraints: 20cm wide. Scan before turning.');
+      expect(goal).toContain('20cm wide. Scan before turning.');
     });
 
     test('fails without location', async () => {

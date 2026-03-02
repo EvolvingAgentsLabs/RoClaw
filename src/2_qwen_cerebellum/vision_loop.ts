@@ -12,7 +12,7 @@ import * as http from 'http';
 import { logger } from '../shared/logger';
 import { BytecodeCompiler, Opcode, encodeFrame, formatHex } from './bytecode_compiler';
 import { UDPTransmitter } from './udp_transmitter';
-import { appendTrace } from '../3_llmunix_memory/trace_logger';
+import { appendTrace, traceLogger } from '../3_llmunix_memory/trace_logger';
 import type { InferenceFunction } from './inference';
 
 // =============================================================================
@@ -75,6 +75,10 @@ export class VisionLoop extends EventEmitter {
   private processingFrame = false;
   private latestFrameBase64: string = '';
   private frameHistory: TimestampedFrame[] = [];
+
+  // Hierarchical architecture extensions
+  private activeTraceId: string | null = null;
+  private activeConstraints: string[] = [];
 
   // Heartbeat: keeps ESP32 alive during slow VLM inference (5-30s)
   private static readonly HEARTBEAT_INTERVAL_MS = 1500; // Under the 2000ms firmware timeout
@@ -154,6 +158,29 @@ export class VisionLoop extends EventEmitter {
   setGoal(goal: string): void {
     this.currentGoal = goal;
     logger.info('VisionLoop', `Goal updated: "${goal}"`);
+  }
+
+  /**
+   * Set the active trace ID for hierarchical logging.
+   * When set, bytecodes are logged via traceLogger.appendBytecode() instead of appendTrace().
+   */
+  setActiveTraceId(traceId: string | null): void {
+    this.activeTraceId = traceId;
+  }
+
+  getActiveTraceId(): string | null {
+    return this.activeTraceId;
+  }
+
+  /**
+   * Set active constraints that are appended to the system prompt.
+   */
+  setConstraints(constraints: string[]): void {
+    this.activeConstraints = constraints;
+  }
+
+  getConstraints(): string[] {
+    return [...this.activeConstraints];
   }
 
   /**
@@ -411,7 +438,11 @@ export class VisionLoop extends EventEmitter {
     this.startInferenceHeartbeat();
 
     try {
-      const systemPrompt = this.compiler.getSystemPrompt(this.currentGoal);
+      let systemPrompt = this.compiler.getSystemPrompt(this.currentGoal);
+      if (this.activeConstraints.length > 0) {
+        systemPrompt += '\n\nACTIVE CONSTRAINTS (from learned strategies):\n' +
+          this.activeConstraints.map(c => `- ${c}`).join('\n');
+      }
       const frameCount = this.frameHistory.length;
       const frameBase64s = this.frameHistory.map(f => f.base64Data);
 
@@ -437,7 +468,13 @@ export class VisionLoop extends EventEmitter {
 
         this.emit('bytecode', bytecode, vlmOutput);
         logger.debug('VisionLoop', `Frame → ${formatHex(bytecode)}`);
-        appendTrace(this.currentGoal, vlmOutput, bytecode);
+
+        // Hierarchical logging: use traceLogger if activeTraceId is set
+        if (this.activeTraceId) {
+          traceLogger.appendBytecode(this.activeTraceId, vlmOutput, bytecode);
+        } else {
+          appendTrace(this.currentGoal, vlmOutput, bytecode);
+        }
       }
     } finally {
       this.stopInferenceHeartbeat();

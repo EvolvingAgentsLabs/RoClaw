@@ -9,7 +9,8 @@
     "sim": "tsx src/virtual_roclaw.ts",
     "test": "jest --no-coverage",
     "type-check": "tsc --noEmit",
-    "dream": "tsx scripts/dream.ts"
+    "dream": "tsx scripts/dream.ts",
+    "dream:v1": "tsx scripts/dream_v1.ts"
   },
   "keywords": [
     "robot",

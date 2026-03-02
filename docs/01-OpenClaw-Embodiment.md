@@ -6,15 +6,19 @@ OpenClaw orchestrates digital agents — web browsing, code writing, email manag
 
 ## RoClaw as a Hardware Node
 
-In OpenClaw's architecture, a **Node** is any agent that can receive tool invocations and return results. RoClaw registers as a hardware node with five capabilities:
+In OpenClaw's architecture, a **Node** is any agent that can receive tool invocations and return results. RoClaw registers as a hardware node with nine capabilities:
 
-- `robot.explore` — Autonomous exploration
-- `robot.go_to {location}` — Visually-guided navigation
+- `robot.explore { constraints? }` — Autonomous exploration with strategy-informed constraints
+- `robot.go_to { location, constraints? }` — Hierarchically-planned navigation (decomposes into multi-step plans when strategies are available)
 - `robot.describe_scene` — Scene understanding
 - `robot.stop` — Emergency halt
 - `robot.status` — Pose and state query
+- `robot.read_memory` — Read hardware profile, identity, hierarchical strategies, and traces
+- `robot.record_observation { label, confidence? }` — Record a location to the semantic map
+- `robot.analyze_scene` — Run VLM-powered scene analysis on demand
+- `robot.get_map` — Get both PoseMap and topological graph
 
-When a user says "go check the kitchen" via WhatsApp, OpenClaw routes the intent to RoClaw's Cortex, which translates it to a visual navigation goal for the Cerebellum.
+When a user says "go check the kitchen" via WhatsApp, OpenClaw routes the intent to RoClaw's Cortex, which uses the Hierarchical Planner to decompose it into strategy-informed sub-goals for the Cerebellum.
 
 ## Why a Separate Robot Project?
 

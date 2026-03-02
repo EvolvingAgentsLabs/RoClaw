@@ -7,21 +7,25 @@ describe('MemoryManager', () => {
   let mm: MemoryManager;
   let emptyTracesDir: string;
   let emptySkillsDir: string;
+  let emptyStrategiesDir: string;
 
   beforeEach(() => {
-    // Use temp directories for traces and skills so existing trace files
+    // Use temp directories for traces, skills, and strategies so existing files
     // on disk don't interfere with tests expecting empty results.
     emptyTracesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'roclaw-traces-'));
     emptySkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'roclaw-skills-'));
+    emptyStrategiesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'roclaw-strategies-'));
     mm = new MemoryManager({
       tracesDir: emptyTracesDir,
       skillsDir: emptySkillsDir,
+      strategiesDir: emptyStrategiesDir,
     });
   });
 
   afterEach(() => {
     fs.rmSync(emptyTracesDir, { recursive: true, force: true });
     fs.rmSync(emptySkillsDir, { recursive: true, force: true });
+    fs.rmSync(emptyStrategiesDir, { recursive: true, force: true });
   });
 
   // ===========================================================================
