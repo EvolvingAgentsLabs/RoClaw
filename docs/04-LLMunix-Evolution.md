@@ -1,15 +1,29 @@
 # LLMunix Evolution
 
-## Markdown Memory
+## Architecture: Core + Adapter
 
-RoClaw's memory system is radically simple: markdown files and JSON graphs.
+The cognitive architecture is split into two layers:
+
+- **`src/llmunix-core/`** — Generic, domain-agnostic cognitive architecture with zero robotics imports. Provides types, strategy store, trace logger, memory manager, dream engine, and shared utilities. Reusable by any agent that needs hierarchical memory and experience evolution.
+- **`src/3_llmunix_memory/`** — RoClaw adapter layer that extends the core with robotics-specific behavior: bytecode entries, motor LLM prompts, hardware/identity sections, and the semantic map.
 
 ```
-src/3_llmunix_memory/
-├── trace_types.ts        # Shared types (HierarchyLevel, TraceOutcome, Strategy, etc.)
-├── trace_logger.ts       # Hierarchical trace recorder (v2) + legacy appendTrace()
-├── strategy_store.ts     # Read/write hierarchical strategy files with YAML frontmatter
-├── memory_manager.ts     # Strategy-aware memory context for Cortex
+src/llmunix-core/                    # Generic cognitive architecture
+├── types.ts              # HierarchyLevel, TraceOutcome, ActionEntry, Strategy, etc.
+├── interfaces.ts         # DreamDomainAdapter, MemorySection, InferenceFunction
+├── utils.ts              # extractJSON, parseJSONSafe
+├── strategy_store.ts     # Configurable store (generic level dirs, YAML frontmatter)
+├── trace_logger.ts       # Generic trace logger (appendAction — no Buffer/formatHex)
+├── memory_manager.ts     # Section-based memory manager (registerSection pattern)
+├── dream_engine.ts       # Adapter-driven 3-phase dream consolidation (DreamEngine class)
+└── index.ts              # Barrel export
+
+src/3_llmunix_memory/                # RoClaw adapter layer
+├── trace_types.ts        # Re-exports core + BytecodeEntry backward compat
+├── trace_logger.ts       # Extends core, adds appendBytecode(Buffer)
+├── strategy_store.ts     # Extends core with RoClaw level dirs (routes, motor)
+├── memory_manager.ts     # Extends core, registers hardware/identity/skills sections
+├── roclaw_dream_adapter.ts # DreamDomainAdapter (bytecode RLE + robot LLM prompts)
 ├── dream_inference.ts    # LLM inference adapter for Dreaming Engine
 ├── semantic_map.ts       # VLM-powered topological graph (Navigation CoT)
 ├── semantic_map_loop.ts  # Async sidecar that feeds camera frames to the map
@@ -33,12 +47,17 @@ src/3_llmunix_memory/
 
 No database. No vector store. No embeddings. Just text files and JSON that an LLM can read and write.
 
+## Markdown Memory
+
 ## System Memory
 
-The `system/` directory contains immutable facts about the robot:
+The core `CoreMemoryManager` (`src/llmunix-core/memory_manager.ts`) uses a section registration pattern — domains register their memory sections (name, heading, load function, priority) and the manager assembles them into a unified context. RoClaw's `MemoryManager` extends the core and registers three sections:
 
-- **hardware.md**: Motor specs, chassis dimensions, camera resolution, safety limits. This is injected into every VLM prompt so the Cerebellum understands its physical constraints.
-- **identity.md**: Who the robot is. This grounds the LLM's self-model.
+- **hardware** (priority 10): `system/hardware.md` — Motor specs, chassis dimensions, camera resolution, safety limits
+- **identity** (priority 20): `system/identity.md` — Who the robot is, grounding the LLM's self-model
+- **skills** (priority 30): Flat skill files (legacy) + hierarchical strategy summaries
+
+Convenience wrappers `getHardwareProfile()`, `getIdentity()`, and `getSkills()` delegate to `getSection(name)`.
 
 ## Semantic Map
 
@@ -55,6 +74,13 @@ Navigation planning now accepts optional `strategyHint` and `constraints` parame
 The full pipeline is validated with E2E tests using real indoor photographs — see `__tests__/navigation/semantic-map-vision.e2e.test.ts`.
 
 ## Hierarchical Strategies
+
+The core `StrategyStore` (`src/llmunix-core/strategy_store.ts`) supports configurable level directory names via `LevelDirectoryConfig`. The defaults are generic (`level_2_strategy`, `level_4_reactive`), and RoClaw overrides two of them:
+
+| Level | Core Default | RoClaw Override |
+|-------|-------------|-----------------|
+| 2 (Strategy) | `level_2_strategy` | `level_2_routes` |
+| 4 (Reactive) | `level_4_reactive` | `level_4_motor` |
 
 The `strategies/` directory stores learned behaviors organized by the 4-tier cognitive hierarchy:
 
@@ -178,8 +204,11 @@ This ensures the Dreaming Engine's REM phase has Level 4 traces with outcome dat
 The `HierarchicalTraceLogger` class manages trace lifecycle:
 
 1. `startTrace(level, goal)` — Open a new trace with a unique ID
-2. `appendBytecode(traceId, vlmOutput, bytecode)` — Record each inference cycle
-3. `endTrace(traceId, outcome, reason?)` — Close the trace with SUCCESS/FAILURE/PARTIAL
+2. `appendAction(traceId, reasoning, actionPayload)` — Record each inference cycle (core generic API)
+3. `appendBytecode(traceId, vlmOutput, bytecode)` — RoClaw-specific: converts Buffer to hex then calls `appendAction`
+4. `endTrace(traceId, outcome, reason?)` — Close the trace with SUCCESS/FAILURE/PARTIAL
+
+The core logger (`src/llmunix-core/trace_logger.ts`) uses generic `ActionEntry` (reasoning + actionPayload). The RoClaw logger extends it with `appendBytecode()` which calls `formatHex(bytecode)` and delegates to `appendAction()`.
 
 ## The Dreaming Engine
 
@@ -187,7 +216,9 @@ Between active operation periods, RoClaw "dreams" — reviewing traces, extracti
 
 ### v2: LLM-Powered Consolidation
 
-The Dreaming Engine v2 (`scripts/dream.ts`) uses LLM inference to analyze traces, modeled on biological sleep phases:
+The Dreaming Engine v2 uses the `DreamEngine` class from `src/llmunix-core/dream_engine.ts` — a generic, adapter-driven consolidation engine. RoClaw provides a `DreamDomainAdapter` (`src/3_llmunix_memory/roclaw_dream_adapter.ts`) that supplies bytecode RLE compression and robot-specific LLM prompts. The `scripts/dream.ts` entry point instantiates the engine with the RoClaw adapter.
+
+The algorithm is modeled on biological sleep phases:
 
 **Phase 1 — Slow Wave Sleep (Replay & Pruning):**
 1. Read all `trace_*.md` files, parse both v1 and v2 formats
@@ -231,6 +262,23 @@ npm run dream:v1   # v1: Statistical 3-opcode sliding-window patterns
 | `DREAM_WINDOW_DAYS` | 7 | Only process traces from last N days |
 | `DREAM_RETENTION_DAYS` | 7 | Delete processed traces older than N days |
 
+### DreamDomainAdapter
+
+The `DreamDomainAdapter` interface (defined in `src/llmunix-core/interfaces.ts`) decouples the dream algorithm from domain-specific concerns. Any domain can plug into the DreamEngine by implementing 8 members:
+
+| Member | Purpose |
+|--------|---------|
+| `compressActions(actions)` | Summarize actions for LLM (RoClaw: opcode RLE) |
+| `failureAnalysisSystemPrompt` | System prompt for failure analysis |
+| `strategyAbstractionSystemPrompt` | System prompt for strategy creation |
+| `strategyMergeSystemPrompt` | System prompt for strategy update |
+| `dreamSummarySystemPrompt` | System prompt for journal entry |
+| `buildFailurePrompt(summary)` | User prompt for failure analysis |
+| `buildAbstractionPrompt(summary, level)` | User prompt for strategy creation |
+| `buildMergePrompt(existing, evidence)` | User prompt for strategy merge |
+
+RoClaw's adapter (`roClawDreamAdapter` in `roclaw_dream_adapter.ts`) implements these with bytecode-specific RLE compression and robot-focused LLM prompts.
+
 ### Cold Start
 
 When no API key is configured or no traces exist, the dream engine installs seed strategies from `_seeds/` and exits. This ensures the robot has useful baseline behaviors from the first run.
@@ -246,11 +294,21 @@ The original Dreaming Engine (`scripts/dream_v1.ts`) uses a simpler statistical 
 
 This is preserved for environments where LLM API access is unavailable.
 
+## Simulation-Driven Evolution
+
+The evolution loop can run entirely in simulation using the mjswan bridge. The 3D physics simulator (MuJoCo WASM + Three.js) provides:
+
+- **First-person camera frames** from the robot's `eyes` camera (65° FOV, 320x240), rendered to an offscreen `WebGLRenderTarget` and streamed as MJPEG
+- **Physics-accurate motor response** via MuJoCo velocity actuators, translating bytecodes to wheel angular velocities
+- **Pose feedback** for trace logging and semantic map building
+
+This enables rapid iteration on strategies and prompts without hardware wear, battery constraints, or physical setup time. Traces accumulated in simulation feed the Dreaming Engine identically to hardware traces.
+
 ## The Evolution Loop
 
 The complete evolution cycle:
 
-1. **Operate** — Execute goals, accumulate hierarchical traces
+1. **Operate** — Execute goals, accumulate hierarchical traces (hardware or simulation)
 2. **Dream** — LLM-powered consolidation: failures → constraints, successes → strategies
 3. **Remember** — Strategies + constraints stored in `strategies/` directory
 4. **Evolve** — Planner queries strategies for next operation, VisionLoop uses constraints

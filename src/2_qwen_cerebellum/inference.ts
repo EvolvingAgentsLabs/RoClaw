@@ -11,12 +11,9 @@ import { logger } from '../shared/logger';
 // Types
 // =============================================================================
 
-/** Generic inference function signature used by the vision loop */
-export type InferenceFunction = (
-  systemPrompt: string,
-  userMessage: string,
-  images?: string[]
-) => Promise<string>;
+/** Re-exported from llmunix-core for backward compatibility */
+import type { InferenceFunction as _InferenceFunction } from '../llmunix-core/interfaces';
+export type InferenceFunction = _InferenceFunction;
 
 export interface InferenceConfig {
   /** OpenRouter API key (for cloud mode) */

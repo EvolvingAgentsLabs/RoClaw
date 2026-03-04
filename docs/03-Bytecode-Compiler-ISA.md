@@ -74,16 +74,33 @@ This requires a serving framework that supports grammar-constrained decoding (ll
 
 ### Mode 2: Few-Shot Prompting
 
-The system prompt teaches Qwen-VL to output hex directly:
+The system prompt teaches Qwen-VL to output hex directly, with an explicit navigation strategy and rich examples:
 
 ```
 OUTPUT FORMAT: Output ONLY a 6-byte hex command. Nothing else.
+
+NAVIGATION STRATEGY:
+- If the path ahead is clear and the goal is visible, MOVE FORWARD.
+- If the path ahead is blocked (wall, obstacle, dark surface), ROTATE to scan.
+- If you see the target object, turn toward it and approach.
+- STOP only when you have arrived at the goal.
+
 EXAMPLES:
 - See clear path ahead → AA 01 80 80 01 FF
-- See obstacle close → AA 07 00 00 07 FF
+- Wall ahead, need to scan → AA 05 5A 80 DB FF
+- See wall on left → AA 04 60 80 E4 FF
+- Target visible on the right → AA 04 40 80 C4 FF
+- Arrived at target → AA 07 00 00 07 FF
+- Need to turn around → AA 05 B4 80 31 FF
 ```
 
+The navigation strategy section is critical — without it, VLMs tend to output only MOVE_FORWARD regardless of what they see. The explicit instructions to ROTATE when blocked and STOP only on arrival produce diverse, situation-appropriate commands.
+
 The compiler extracts hex bytes from anywhere in the response.
+
+### Checksum Repair
+
+VLMs reliably produce correct opcodes and parameters but frequently miscalculate the XOR checksum. The compiler auto-repairs these frames: if the start/end markers are correct (`0xAA`/`0xFF`) and the opcode is recognized, it recalculates the checksum rather than rejecting the frame. This significantly improves the grammar and few-shot compilation rates.
 
 ## STOP Holding Torque Mode
 

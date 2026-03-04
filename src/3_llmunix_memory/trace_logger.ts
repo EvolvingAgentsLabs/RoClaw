@@ -1,11 +1,11 @@
 /**
  * RoClaw Trace Logger — Records physical experiences to markdown
  *
- * Writes execution traces to the traces/ directory so the LLMunix
- * Dreaming Engine can review and promote patterns to skills.
- *
- * v2: Adds HierarchicalTraceLogger with hierarchy-aware trace entries.
- * The original appendTrace() is preserved as a backward-compat wrapper.
+ * Extends the core HierarchicalTraceLogger with RoClaw-specific behavior:
+ * - appendBytecode() using formatHex + Buffer
+ * - Legacy appendTrace() function
+ * - VLM/Bytecode trace format for backward compatibility
+ * - Singleton traceLogger instance
  */
 
 import * as fs from 'fs';
@@ -13,11 +13,17 @@ import * as path from 'path';
 import { formatHex } from '../2_qwen_cerebellum/bytecode_compiler';
 import { logger } from '../shared/logger';
 import {
+  HierarchicalTraceLogger as CoreTraceLogger,
+  type StartTraceOptions,
+} from '../llmunix-core/trace_logger';
+import {
   HierarchyLevel,
   TraceOutcome,
   type HierarchicalTraceEntry,
-  type BytecodeEntry,
-} from './trace_types';
+} from '../llmunix-core/types';
+import { type BytecodeEntry, actionToBytecode } from './trace_types';
+
+export { type StartTraceOptions } from '../llmunix-core/trace_logger';
 
 const TRACES_DIR = path.join(__dirname, 'traces');
 
@@ -25,9 +31,6 @@ const TRACES_DIR = path.join(__dirname, 'traces');
 // Legacy v1 API (backward-compatible)
 // =============================================================================
 
-/**
- * Append a trace entry to today's trace file (v1 format).
- */
 export function appendTrace(goal: string, vlmOutput: string, bytecode: Buffer): void {
   const date = new Date().toISOString().split('T')[0];
   const tracePath = path.join(TRACES_DIR, `trace_${date}.md`);
@@ -52,81 +55,35 @@ export function appendTrace(goal: string, vlmOutput: string, bytecode: Buffer): 
 }
 
 // =============================================================================
-// v2: Hierarchical Trace Logger
+// RoClaw Hierarchical Trace Logger
 // =============================================================================
 
-function generateTraceId(): string {
-  const ts = Date.now().toString(36);
-  const rand = Math.random().toString(36).slice(2, 6);
-  return `tr_${ts}_${rand}`;
+/** Extended entry type with backward-compatible bytecodeEntries */
+export interface RoClawTraceEntry extends HierarchicalTraceEntry {
+  bytecodeEntries: BytecodeEntry[];
 }
 
-export interface StartTraceOptions {
-  parentTraceId?: string;
-  locationNode?: string;
-  sceneDescription?: string;
-  activeStrategyId?: string;
-}
-
-export class HierarchicalTraceLogger {
-  private activeTraces = new Map<string, HierarchicalTraceEntry>();
-  private tracesDir: string;
-
+export class HierarchicalTraceLogger extends CoreTraceLogger {
   constructor(tracesDir?: string) {
-    this.tracesDir = tracesDir ?? TRACES_DIR;
+    super(tracesDir ?? TRACES_DIR);
   }
 
   /**
-   * Start a new hierarchical trace. Returns the trace ID.
-   */
-  startTrace(
-    level: HierarchyLevel,
-    goal: string,
-    opts?: StartTraceOptions,
-  ): string {
-    const traceId = generateTraceId();
-
-    const entry: HierarchicalTraceEntry = {
-      traceId,
-      hierarchyLevel: level,
-      parentTraceId: opts?.parentTraceId ?? null,
-      timestamp: new Date().toISOString(),
-      goal,
-      locationNode: opts?.locationNode ?? null,
-      sceneDescription: opts?.sceneDescription ?? null,
-      activeStrategyId: opts?.activeStrategyId ?? null,
-      outcome: TraceOutcome.UNKNOWN,
-      outcomeReason: null,
-      durationMs: null,
-      confidence: null,
-      bytecodeEntries: [],
-    };
-
-    this.activeTraces.set(traceId, entry);
-    logger.debug('TraceLogger', `Started trace ${traceId} (L${level}): ${goal}`);
-    return traceId;
-  }
-
-  /**
-   * Append a bytecode entry to an active trace.
+   * Append a bytecode entry to an active trace (RoClaw-specific).
    */
   appendBytecode(traceId: string, vlmOutput: string, bytecode: Buffer): void {
-    const entry = this.activeTraces.get(traceId);
+    const entry = super.getActiveTrace(traceId);
     if (!entry) {
       logger.warn('TraceLogger', `appendBytecode: unknown trace ${traceId}, falling back to legacy`);
       appendTrace('(unknown trace)', vlmOutput, bytecode);
       return;
     }
 
-    entry.bytecodeEntries.push({
-      timestamp: new Date().toISOString(),
-      vlmOutput: vlmOutput.trim(),
-      bytecodeHex: formatHex(bytecode),
-    });
+    this.appendAction(traceId, vlmOutput, formatHex(bytecode));
   }
 
   /**
-   * End a trace with an outcome. Writes it to disk and removes from active map.
+   * End a trace with an outcome. Overrides core to add logging.
    */
   endTrace(
     traceId: string,
@@ -134,20 +91,39 @@ export class HierarchicalTraceLogger {
     reason?: string,
     confidence?: number,
   ): void {
-    const entry = this.activeTraces.get(traceId);
+    const entry = super.getActiveTrace(traceId);
     if (!entry) {
       logger.warn('TraceLogger', `endTrace: unknown trace ${traceId}`);
       return;
     }
-
-    entry.outcome = outcome;
-    entry.outcomeReason = reason ?? null;
-    entry.confidence = confidence ?? null;
-    entry.durationMs = Date.now() - new Date(entry.timestamp).getTime();
-
-    this.writeTrace(entry);
-    this.activeTraces.delete(traceId);
+    logger.debug('TraceLogger', `Ending trace ${traceId}: ${outcome}`);
+    super.endTrace(traceId, outcome, reason, confidence);
     logger.debug('TraceLogger', `Ended trace ${traceId}: ${outcome} (${entry.durationMs}ms)`);
+  }
+
+  /**
+   * Start a new hierarchical trace. Overrides core to add logging.
+   */
+  startTrace(
+    level: HierarchyLevel,
+    goal: string,
+    opts?: StartTraceOptions,
+  ): string {
+    const traceId = super.startTrace(level, goal, opts);
+    logger.debug('TraceLogger', `Started trace ${traceId} (L${level}): ${goal}`);
+    return traceId;
+  }
+
+  /**
+   * Get an active trace entry with backward-compatible bytecodeEntries.
+   */
+  getActiveTrace(traceId: string): RoClawTraceEntry | undefined {
+    const entry = super.getActiveTrace(traceId);
+    if (!entry) return undefined;
+    return {
+      ...entry,
+      bytecodeEntries: entry.actionEntries.map(actionToBytecode),
+    };
   }
 
   /**
@@ -157,25 +133,11 @@ export class HierarchicalTraceLogger {
     appendTrace(goal, vlmOutput, bytecode);
   }
 
-  /**
-   * Get an active trace entry (for inspection/testing).
-   */
-  getActiveTrace(traceId: string): HierarchicalTraceEntry | undefined {
-    return this.activeTraces.get(traceId);
-  }
-
-  /**
-   * Get count of active (unclosed) traces.
-   */
-  getActiveTraceCount(): number {
-    return this.activeTraces.size;
-  }
-
   // ---------------------------------------------------------------------------
-  // Private — Disk I/O
+  // Override writeTrace to use RoClaw's VLM/Bytecode format
   // ---------------------------------------------------------------------------
 
-  private writeTrace(entry: HierarchicalTraceEntry): void {
+  protected writeTrace(entry: HierarchicalTraceEntry): void {
     const date = entry.timestamp.split('T')[0];
     const tracePath = path.join(this.tracesDir, `trace_${date}.md`);
 
@@ -187,7 +149,6 @@ export class HierarchicalTraceLogger {
       fs.writeFileSync(tracePath, `# Execution Traces: ${date}\n\n`);
     }
 
-    // v2 format — includes optional fields that old parsers skip
     const lines: string[] = [
       '',
       `### Time: ${entry.timestamp}`,
@@ -223,10 +184,10 @@ export class HierarchicalTraceLogger {
       lines.push(`**Confidence:** ${entry.confidence}`);
     }
 
-    // Write bytecode entries
-    for (const bc of entry.bytecodeEntries) {
-      lines.push(`**VLM Reasoning:** ${bc.vlmOutput}`);
-      lines.push(`**Compiled Bytecode:** \`${bc.bytecodeHex}\``);
+    // Write action entries in RoClaw's VLM/Bytecode format for backward compat
+    for (const action of entry.actionEntries) {
+      lines.push(`**VLM Reasoning:** ${action.reasoning}`);
+      lines.push(`**Compiled Bytecode:** \`${action.actionPayload}\``);
     }
 
     lines.push('---');

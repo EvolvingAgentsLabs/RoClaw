@@ -1,8 +1,8 @@
 # RoClaw Test Analysis Report
 
-**Date:** March 2, 2026
-**Branch:** main
-**Test Results:** 284 passed, 0 failures (without API key); 30 skipped (API-gated)
+**Date:** March 3, 2026
+**Branch:** integration-mjswan-gemini-robotics
+**Test Results:** 341 passed, 0 failures (without API key); 30 skipped (API-gated)
 
 ---
 
@@ -33,20 +33,23 @@ RoClaw's test suite validates the full software stack from VLM inference to byte
 | Strategy Store | `strategy-store.test.ts` | 16 | No | YAML frontmatter parsing, keyword search, negative constraints, reinforcement |
 | Planner | `planner.test.ts` | 7 | No | Goal decomposition, strategy injection, graceful degradation without strategies |
 | Dream Engine v2 | `dream-v2.test.ts` | 9 | No | Trace parsing (v1+v2), sequence grouping, scoring, cold start, seed install |
+| mjswan Bridge | `mjswan-bridge.test.ts` | 15 | No | Bytecode→MuJoCo ctrl translation, speed parameter conversion, all opcodes |
+| LLMunix Core | `llmunix-core/*.test.ts` | 42 | No | Generic strategy store, trace logger, memory manager, dream engine, utils |
 | **Synthetic E2E** | **`semantic-map-synthetic.e2e.test.ts`** | **16** | **No** | **Full CoT pipeline with mock VLM: pre-filter, matching, planning, bytecode** |
 | Text E2E | `semantic-map.e2e.test.ts` | 19 | Yes | Full pipeline with real Qwen3-VL-8B on text scene descriptions |
 | Vision E2E | `semantic-map-vision.e2e.test.ts` | 10 | Yes | Real indoor photos through the full pipeline to bytecode |
 | Outdoor E2E | `semantic-map-outdoor.e2e.test.ts` | 8 | Yes | Real walking-route captures with compass heading through full pipeline |
 
-**Totals:** 284 tests (no API key), 30 skipped (with API key) = **314 test cases across 17 suites**
+**Totals:** 341 tests (no API key), 30 skipped (with API key) = **371 test cases across 23 suites**
 
 ### 2.2 The Four Layers of Validation
 
 ```
-Layer 4:  Real VLM + Real Images   (vision & outdoor E2E)     ← Proves VLM understands rooms
-Layer 3:  Real VLM + Text Scenes   (text E2E)                 ← Proves full CoT pipeline works
-Layer 2:  Mock VLM + Full Pipeline (synthetic E2E)             ← Proves code logic in CI
-Layer 1:  Unit Tests               (compiler, UDP, kinematics) ← Proves each component works
+Layer 5:  3D Physics Simulation    (mjswan closed loop)        ← Proves VLM navigates in 3D world
+Layer 4:  Real VLM + Real Images   (vision & outdoor E2E)      ← Proves VLM understands rooms
+Layer 3:  Real VLM + Text Scenes   (text E2E)                  ← Proves full CoT pipeline works
+Layer 2:  Mock VLM + Full Pipeline (synthetic E2E)              ← Proves code logic in CI
+Layer 1:  Unit Tests               (compiler, UDP, kinematics)  ← Proves each component works
 ```
 
 Each layer builds confidence on top of the one below. A bug at Layer 1 would cascade up. The fact that Layer 4 passes means all lower layers are working correctly in an integrated context.
@@ -111,7 +114,7 @@ The VLM occasionally produces different feature sets for the same scene across r
 |-----|------|------------|
 | ESP32-S3 bytecode execution | Firmware may parse frames differently | Frame format is simple (6 bytes, well-documented ISA) — mismatch is unlikely |
 | Stepper motor response | Motor speed/direction may differ from kinematics model | StepperKinematics is validated mathematically; real motors need calibration |
-| Camera MJPEG stream | Stream parsing may fail on real hardware | VisionLoop has reconnection logic; tested with mocks but not real streams |
+| Camera MJPEG stream | Stream parsing may fail on real hardware | VisionLoop has reconnection logic; tested with mocks and validated end-to-end via mjswan bridge MJPEG stream |
 | UDP over Wi-Fi | Packets may be lost or reordered | Sequence numbers and dropped-frame counter are implemented and tested |
 | Emergency stop hardware button | Physical button wiring untested | Software STOP frame is proven; hardware wiring is a one-wire circuit |
 | Battery voltage monitoring | No sensor integration tests | Not part of current software scope |
@@ -125,7 +128,7 @@ The VLM occasionally produces different feature sets for the same scene across r
 | ~~No multi-step plan integration test~~ | ~~Medium~~ | **Resolved** — Integration tests prove the full plan(2 steps) → arrival → advance → arrival → SUCCESS → cleanup cycle |
 | ~~No stuck/timeout detection~~ | ~~Medium~~ | **Resolved** — Stuck detection (8 identical opcodes), step timeouts (45s), and step retry with re-planning are implemented and tested |
 | Dream Engine v2 with real LLM | **Low** | Tested with mocked inference; real LLM consolidation is validated by strategy file format tests |
-| MJPEG stream parsing | **Low** | VisionLoop's `connectToStream` is tested with mocks but not real HTTP streams |
+| ~~MJPEG stream parsing~~ | ~~Low~~ | **Resolved** — VisionLoop's `connectToStream` validated end-to-end via mjswan bridge MJPEG stream (real HTTP multipart stream, real JPEG frames from 3D render) |
 | Long-running stability | **Low** | No tests run for more than 10 minutes; real operation may surface memory leaks or state drift |
 
 ### 4.3 Firmware (Out of Scope)
@@ -204,9 +207,9 @@ These are unlikely but possible:
 
 ## 7. Conclusion
 
-The RoClaw software stack is **well-tested and ready for hardware integration**. The Navigation Chain of Thought pipeline — the core innovation — is validated end-to-end with a real VLM producing real motor commands that compile to valid bytecode. The test suite covers the full path from scene understanding to wheel rotation at the bytecode level.
+The RoClaw software stack is **well-tested and ready for hardware integration**. The Navigation Chain of Thought pipeline — the core innovation — is validated end-to-end with a real VLM producing real motor commands that compile to valid bytecode. The mjswan 3D simulation adds a physics-accurate closed-loop validation layer: VLM sees first-person camera frames, outputs diverse bytecodes (FORWARD, ROTATE, TURN, STOP), and the robot physically navigates in the MuJoCo world.
 
-The gap between "all tests pass" and "robot drives to the kitchen" is primarily **calibration and configuration**, not software correctness. The 284 passing tests (+ 30 API-gated tests) give strong confidence that:
+The gap between "all tests pass" and "robot drives to the kitchen" is primarily **calibration and configuration**, not software correctness. The 341 passing tests (+ 30 API-gated tests) give strong confidence that:
 
 - The bytecode format is correct and the ESP32 will understand it
 - The VLM produces sensible motor commands for indoor navigation
@@ -214,3 +217,5 @@ The gap between "all tests pass" and "robot drives to the kitchen" is primarily 
 - The safety and transport layers handle errors gracefully
 
 **Expected outcome of first hardware test:** The robot will receive valid bytecode and move its motors. Speed calibration, VLM timeout tuning, and camera stream configuration will need adjustment. No architectural changes are anticipated.
+
+**Simulation validation (mjswan):** The VLM successfully navigates a 3D arena in closed loop — detecting walls via first-person camera, rotating to scan for targets, turning toward the red cube, and stopping on arrival. The simulation validates the complete data path: 3D render → MJPEG → VLM → bytecode → UDP → bridge → MuJoCo physics → robot moves → new frame.
