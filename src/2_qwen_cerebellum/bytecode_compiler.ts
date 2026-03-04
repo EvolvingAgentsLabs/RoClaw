@@ -305,7 +305,10 @@ export class BytecodeCompiler {
 
     const buffer = Buffer.from(bytes);
     // Validate frame structure
-    if (decodeFrame(buffer) === null) return null;
+    if (decodeFrame(buffer) === null) {
+      // VLMs often get the checksum wrong — repair if structure is valid
+      return this.tryRepairChecksum(buffer);
+    }
 
     return buffer;
   }
@@ -320,9 +323,37 @@ export class BytecodeCompiler {
     if (bytes.length !== FRAME_SIZE) return null;
 
     const buffer = Buffer.from(bytes);
-    if (decodeFrame(buffer) === null) return null;
+    if (decodeFrame(buffer) === null) {
+      return this.tryRepairChecksum(buffer);
+    }
 
     return buffer;
+  }
+
+  /**
+   * Attempt to repair a frame with correct start/end markers and valid opcode
+   * but incorrect checksum. VLMs reliably produce correct opcodes and params
+   * but frequently miscalculate the XOR checksum.
+   */
+  private tryRepairChecksum(buffer: Buffer): Buffer | null {
+    if (buffer.length < FRAME_SIZE) return null;
+    if (buffer[0] !== FRAME_START || buffer[5] !== FRAME_END) return null;
+
+    const opcode = buffer[1];
+    // Reject if opcode is not recognized
+    if (!OPCODE_NAMES[opcode]) return null;
+
+    const paramLeft = buffer[2];
+    const paramRight = buffer[3];
+    const correctChecksum = calculateChecksum(opcode, paramLeft, paramRight);
+
+    logger.debug('Compiler', 'Repaired checksum', {
+      opcode: OPCODE_NAMES[opcode],
+      bad: `0x${buffer[4].toString(16).toUpperCase()}`,
+      good: `0x${correctChecksum.toString(16).toUpperCase()}`,
+    });
+
+    return encodeFrame({ opcode, paramLeft, paramRight });
   }
 
   private tryParseTextCommand(text: string): Buffer | null {
@@ -370,12 +401,20 @@ AA 07 00 00 07 FF  — Stop
 
 CC = checksum (XOR of bytes 1-3)
 
+NAVIGATION STRATEGY:
+- If the path ahead is clear and the goal is visible, MOVE FORWARD.
+- If the path ahead is blocked (wall, obstacle filling most of the view, or very dark/close surface), ROTATE to scan for the goal or a clear path. Do NOT move forward into walls.
+- If you see the target object (e.g. the red cube), turn toward it and approach.
+- STOP only when you have arrived at the goal (target object is very close and centered).
+
 EXAMPLES:
 - See clear path ahead → AA 01 80 80 01 FF
+- Wall ahead, need to scan → AA 05 5A 80 DB FF
 - See wall on left → AA 04 60 80 E4 FF
-- See obstacle close → AA 07 00 00 07 FF
-- Need to turn around → AA 05 B4 80 21 FF
-- Obstacle growing rapidly across frames (approaching fast) → AA 07 00 00 07 FF
+- See obstacle close, rotate to find path → AA 06 5A 80 DC FF
+- Target visible on the right → AA 04 40 80 C4 FF
+- Arrived at target (very close) → AA 07 00 00 07 FF
+- Need to turn around → AA 05 B4 80 31 FF
 
 Your response must be EXACTLY 6 hex bytes separated by spaces.`;
 
