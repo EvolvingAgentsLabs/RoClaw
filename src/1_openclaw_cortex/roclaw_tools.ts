@@ -444,6 +444,11 @@ async function handleExplore(ctx: ToolContext, constraints?: string): Promise<To
     if (reactiveStrategies.length > 0) {
       for (const strat of reactiveStrategies.slice(0, 3)) {
         memoryConstraints.push(`[${strat.title}]: ${strat.steps.join(', ')}`);
+        if (strat.spatialRules && strat.spatialRules.length > 0) {
+          for (const rule of strat.spatialRules) {
+            memoryConstraints.push(`[SPATIAL] ${rule}`);
+          }
+        }
       }
     }
     const negConstraints = memoryManager.getNegativeConstraints();
@@ -545,15 +550,22 @@ async function handleGoTo(location: string, ctx: ToolContext, constraints?: stri
       for (const step of plan.steps) {
         planConstraints.push(...step.constraints);
       }
-      // Deduplicate
-      planConstraints = [...new Set(planConstraints)];
 
       // Build strategy hint from first step
       const firstStep = plan.steps[0];
       if (firstStep.strategy) {
         strategyHintForNav = `${firstStep.strategy.title}: ${firstStep.strategy.steps.join(' → ')}`;
         plannerHint = ` [Strategy: "${firstStep.strategy.title}" — ${firstStep.strategy.steps.join(' → ')}]`;
+        // Inject spatial rules from strategy
+        if (firstStep.strategy.spatialRules && firstStep.strategy.spatialRules.length > 0) {
+          for (const rule of firstStep.strategy.spatialRules) {
+            planConstraints.push(`[SPATIAL] ${rule}`);
+          }
+        }
       }
+
+      // Deduplicate
+      planConstraints = [...new Set(planConstraints)];
       if (plan.steps.length > 1) {
         const stepDescs = plan.steps.map((s, i) => `${i + 1}. ${s.description}`).join(', ');
         plannerHint += ` [Plan: ${stepDescs}]`;

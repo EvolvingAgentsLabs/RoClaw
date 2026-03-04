@@ -25,6 +25,7 @@ import { BytecodeCompiler, formatHex } from '../src/2_qwen_cerebellum/bytecode_c
 import { UDPTransmitter } from '../src/2_qwen_cerebellum/udp_transmitter';
 import { VisionLoop } from '../src/2_qwen_cerebellum/vision_loop';
 import { CerebellumInference } from '../src/2_qwen_cerebellum/inference';
+import { GeminiRoboticsInference, ROCLAW_TOOL_DECLARATIONS } from '../src/2_qwen_cerebellum/gemini_robotics';
 import { handleTool, type ToolContext } from '../src/1_openclaw_cortex/roclaw_tools';
 import { DreamEngine } from '../src/llmunix-core/dream_engine';
 import { StrategyStore } from '../src/3_llmunix_memory/strategy_store';
@@ -57,6 +58,7 @@ let goal = '';
 let mode: 'go_to' | 'explore' = 'go_to';
 let dreamOnShutdown: boolean | undefined;
 let constraints: string | undefined;
+let useGemini = false;
 
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
@@ -76,6 +78,9 @@ for (let i = 0; i < args.length; i++) {
     case '--constraints':
       constraints = args[++i] || '';
       break;
+    case '--gemini':
+      useGemini = true;
+      break;
     case '--help':
       console.log(`Usage: npx tsx scripts/run_sim3d.ts [options]
 
@@ -85,6 +90,7 @@ Options:
   --dream               Run dream consolidation on shutdown (default for go_to)
   --no-dream            Disable dream consolidation on shutdown
   --constraints <text>  Additional constraints for navigation
+  --gemini              Use Gemini Robotics-ER instead of Qwen-VL (requires GOOGLE_API_KEY)
   --help                Show this help message
 
 Examples:
@@ -92,6 +98,7 @@ Examples:
   npx tsx scripts/run_sim3d.ts --explore
   npx tsx scripts/run_sim3d.ts --goal "the red cube" --dream
   npx tsx scripts/run_sim3d.ts --goal "the door" --constraints "stay close to walls"
+  GOOGLE_API_KEY=... npx tsx scripts/run_sim3d.ts --gemini --goal "find the red cube"
 `);
       process.exit(0);
   }
@@ -117,17 +124,39 @@ async function runDreamConsolidation(): Promise<void> {
   const TRACES_DIR = path.join(__dirname, '..', 'src', '3_llmunix_memory', 'traces');
   const STRATEGIES_DIR = path.join(__dirname, '..', 'src', '3_llmunix_memory', 'strategies');
 
-  if (!config.apiKey && !config.localInferenceUrl) {
+  const googleApiKey = process.env.GOOGLE_API_KEY;
+  const dreamProvider = process.env.DREAM_PROVIDER;
+
+  if (!config.apiKey && !config.localInferenceUrl && !googleApiKey) {
     logger.warn('Sim3D', 'No API key for dream — run `npm run dream` manually.');
     return;
   }
 
   logger.info('Sim3D', 'Running dream consolidation...');
   const store = new StrategyStore(STRATEGIES_DIR);
-  const dreamInfer = createDreamInference({
-    apiKey: config.apiKey,
-    ...(config.localInferenceUrl ? { apiBaseUrl: config.localInferenceUrl } : {}),
-  });
+
+  let dreamInfer;
+  if (dreamProvider === 'gemini' || (googleApiKey && !config.apiKey && !config.localInferenceUrl)) {
+    // Use Gemini for dream inference (deep analysis with thinking budget)
+    const geminiDream = new GeminiRoboticsInference({
+      apiKey: googleApiKey!,
+      model: process.env.GEMINI_MODEL || 'gemini-robotics-er-1.5-preview',
+      maxOutputTokens: 2048,
+      temperature: 0.3,
+      timeoutMs: 30000,
+      thinkingBudget: parseInt(process.env.GEMINI_THINKING_BUDGET || '1024', 10),
+      useToolCalling: false,
+    });
+    dreamInfer = geminiDream.createInferenceFunction();
+    logger.info('Sim3D', 'Dream provider: Gemini');
+  } else {
+    dreamInfer = createDreamInference({
+      apiKey: config.apiKey,
+      ...(config.localInferenceUrl ? { apiBaseUrl: config.localInferenceUrl } : {}),
+    });
+    logger.info('Sim3D', 'Dream provider: OpenRouter');
+  }
+
   const engine = new DreamEngine({
     adapter: roClawDreamAdapter,
     infer: dreamInfer,
@@ -160,14 +189,33 @@ async function main(): Promise<void> {
   await transmitter.connect();
   logger.info('Sim3D', `UDP transmitter -> ${config.esp32Host}:${config.esp32Port}`);
 
-  // 3. Inference (OpenRouter or local)
-  const inferenceConfig = config.localInferenceUrl
-    ? { apiKey: config.apiKey || 'local', apiBaseUrl: config.localInferenceUrl, model: config.model }
-    : { apiKey: config.apiKey, model: config.model };
-
-  const inference = new CerebellumInference(inferenceConfig);
-  const infer = inference.createInferenceFunction();
-  logger.info('Sim3D', `Inference: ${config.localInferenceUrl ? 'local' : 'OpenRouter'} (${config.model})`);
+  // 3. Inference (Gemini, OpenRouter, or local)
+  let infer;
+  if (useGemini) {
+    const googleApiKey = process.env.GOOGLE_API_KEY;
+    if (!googleApiKey) {
+      logger.error('Sim3D', 'GOOGLE_API_KEY required for --gemini mode');
+      process.exit(1);
+    }
+    const geminiModel = process.env.GEMINI_MODEL || 'gemini-robotics-er-1.5-preview';
+    const thinkingBudget = parseInt(process.env.GEMINI_THINKING_BUDGET || '0', 10);
+    const gemini = new GeminiRoboticsInference({
+      apiKey: googleApiKey,
+      model: geminiModel,
+      thinkingBudget,
+      useToolCalling: true,
+      tools: ROCLAW_TOOL_DECLARATIONS,
+    });
+    infer = gemini.createInferenceFunction();
+    logger.info('Sim3D', `Inference: Gemini (${geminiModel}, thinking=${thinkingBudget}, tools=on)`);
+  } else {
+    const inferenceConfig = config.localInferenceUrl
+      ? { apiKey: config.apiKey || 'local', apiBaseUrl: config.localInferenceUrl, model: config.model }
+      : { apiKey: config.apiKey, model: config.model };
+    const inference = new CerebellumInference(inferenceConfig);
+    infer = inference.createInferenceFunction();
+    logger.info('Sim3D', `Inference: ${config.localInferenceUrl ? 'local' : 'OpenRouter'} (${config.model})`);
+  }
 
   // 4. Vision loop -> bridge MJPEG stream
   const cameraUrl = `http://${config.cameraHost}:${config.cameraPort}${config.cameraPath}`;
