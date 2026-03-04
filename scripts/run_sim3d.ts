@@ -1,8 +1,9 @@
 /**
- * RoClaw mjswan Full Loop — Standalone test runner
+ * RoClaw mjswan Full Loop — Full cognitive stack runner
  *
- * Starts the VisionLoop immediately (no cortex gateway needed).
- * Connects to the mjswan bridge for 3D physics simulation.
+ * Runs the complete cognitive pipeline via handleTool():
+ *   MemoryManager → HierarchicalPlanner → NavigationSession → VisionLoop
+ *   + SemanticMapLoop (background) + TraceLogger (hierarchical traces)
  *
  * Prerequisites:
  *   1. mjswan scene running: cd sim && python build_scene.py
@@ -10,16 +11,25 @@
  *   3. Browser open: http://localhost:8000?bridge=ws://localhost:9090
  *
  * Usage:
- *   npx tsx scripts/run_sim3d.ts
  *   npx tsx scripts/run_sim3d.ts --goal "navigate to the red box"
+ *   npx tsx scripts/run_sim3d.ts --explore
+ *   npx tsx scripts/run_sim3d.ts --goal "the red cube" --dream
+ *   npx tsx scripts/run_sim3d.ts --goal "the door" --constraints "stay close to walls"
+ *   npx tsx scripts/run_sim3d.ts --help
  */
 
 import * as dotenv from 'dotenv';
+import * as path from 'path';
 import { logger } from '../src/shared/logger';
 import { BytecodeCompiler, formatHex } from '../src/2_qwen_cerebellum/bytecode_compiler';
 import { UDPTransmitter } from '../src/2_qwen_cerebellum/udp_transmitter';
 import { VisionLoop } from '../src/2_qwen_cerebellum/vision_loop';
 import { CerebellumInference } from '../src/2_qwen_cerebellum/inference';
+import { handleTool, type ToolContext } from '../src/1_openclaw_cortex/roclaw_tools';
+import { DreamEngine } from '../src/llmunix-core/dream_engine';
+import { StrategyStore } from '../src/3_llmunix_memory/strategy_store';
+import { createDreamInference } from '../src/3_llmunix_memory/dream_inference';
+import { roClawDreamAdapter } from '../src/3_llmunix_memory/roclaw_dream_adapter';
 
 dotenv.config();
 
@@ -39,13 +49,94 @@ const config = {
   localInferenceUrl: process.env.LOCAL_INFERENCE_URL,
 };
 
-// Parse CLI goal
-let goal = 'explore the arena and avoid obstacles';
+// =============================================================================
+// CLI parsing
+// =============================================================================
+
+let goal = '';
+let mode: 'go_to' | 'explore' = 'go_to';
+let dreamOnShutdown: boolean | undefined;
+let constraints: string | undefined;
+
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
-  if (args[i] === '--goal' && args[i + 1]) {
-    goal = args[++i];
+  switch (args[i]) {
+    case '--goal':
+      goal = args[++i] || '';
+      break;
+    case '--explore':
+      mode = 'explore';
+      break;
+    case '--dream':
+      dreamOnShutdown = true;
+      break;
+    case '--no-dream':
+      dreamOnShutdown = false;
+      break;
+    case '--constraints':
+      constraints = args[++i] || '';
+      break;
+    case '--help':
+      console.log(`Usage: npx tsx scripts/run_sim3d.ts [options]
+
+Options:
+  --goal <text>         Navigate to a described location (default mode)
+  --explore             Explore the environment autonomously
+  --dream               Run dream consolidation on shutdown (default for go_to)
+  --no-dream            Disable dream consolidation on shutdown
+  --constraints <text>  Additional constraints for navigation
+  --help                Show this help message
+
+Examples:
+  npx tsx scripts/run_sim3d.ts --goal "navigate to the red box"
+  npx tsx scripts/run_sim3d.ts --explore
+  npx tsx scripts/run_sim3d.ts --goal "the red cube" --dream
+  npx tsx scripts/run_sim3d.ts --goal "the door" --constraints "stay close to walls"
+`);
+      process.exit(0);
   }
+}
+
+// Default dream on for go_to mode (traces are always collected anyway)
+if (mode === 'go_to' && dreamOnShutdown === undefined) {
+  dreamOnShutdown = true;
+}
+dreamOnShutdown = dreamOnShutdown ?? false;
+
+// Default goal for go_to mode if none specified
+if (mode === 'go_to' && !goal) {
+  goal = 'explore the arena and avoid obstacles';
+  mode = 'explore'; // no goal means explore
+}
+
+// =============================================================================
+// Dream consolidation
+// =============================================================================
+
+async function runDreamConsolidation(): Promise<void> {
+  const TRACES_DIR = path.join(__dirname, '..', 'src', '3_llmunix_memory', 'traces');
+  const STRATEGIES_DIR = path.join(__dirname, '..', 'src', '3_llmunix_memory', 'strategies');
+
+  if (!config.apiKey && !config.localInferenceUrl) {
+    logger.warn('Sim3D', 'No API key for dream — run `npm run dream` manually.');
+    return;
+  }
+
+  logger.info('Sim3D', 'Running dream consolidation...');
+  const store = new StrategyStore(STRATEGIES_DIR);
+  const dreamInfer = createDreamInference({
+    apiKey: config.apiKey,
+    ...(config.localInferenceUrl ? { apiBaseUrl: config.localInferenceUrl } : {}),
+  });
+  const engine = new DreamEngine({
+    adapter: roClawDreamAdapter,
+    infer: dreamInfer,
+    store,
+    tracesDir: TRACES_DIR,
+  });
+
+  const result = await engine.dream();
+  logger.info('Sim3D', `Dream: ${result.tracesProcessed} traces → ${result.strategiesCreated.length} new, ${result.strategiesUpdated.length} updated`);
 }
 
 // =============================================================================
@@ -53,8 +144,10 @@ for (let i = 0; i < args.length; i++) {
 // =============================================================================
 
 async function main(): Promise<void> {
-  logger.info('Sim3D', '=== RoClaw mjswan Full Loop ===');
-  logger.info('Sim3D', `Goal: "${goal}"`);
+  logger.info('Sim3D', '=== RoClaw mjswan Full Cognitive Stack ===');
+  logger.info('Sim3D', `Mode: ${mode}${mode === 'go_to' ? ` | Goal: "${goal}"` : ''}`);
+  if (constraints) logger.info('Sim3D', `Constraints: "${constraints}"`);
+  if (dreamOnShutdown) logger.info('Sim3D', 'Dream consolidation enabled on shutdown');
 
   // 1. Compiler
   const compiler = new BytecodeCompiler('fewshot');
@@ -85,7 +178,7 @@ async function main(): Promise<void> {
     infer,
   );
 
-  // Event logging
+  // Event logging (fires regardless of who calls visionLoop.start())
   visionLoop.on('connected', () => {
     logger.info('Sim3D', 'Camera stream connected — VLM loop active');
   });
@@ -106,23 +199,54 @@ async function main(): Promise<void> {
     logger.warn('Sim3D', 'Camera reconnecting...');
   });
 
-  // 5. Start the loop immediately
-  logger.info('Sim3D', `Starting vision loop: ${cameraUrl}`);
-  await visionLoop.start(goal);
+  // 5. Build ToolContext and dispatch via handleTool
+  const ctx: ToolContext = { compiler, transmitter, visionLoop, infer };
 
-  logger.info('Sim3D', 'Vision loop started — full closed loop active!');
+  logger.info('Sim3D', `Starting full cognitive stack: ${cameraUrl}`);
+
+  let result;
+  if (mode === 'explore') {
+    result = await handleTool('robot.explore', constraints ? { constraints } : {}, ctx);
+  } else {
+    result = await handleTool('robot.go_to', {
+      location: goal,
+      ...(constraints ? { constraints } : {}),
+    }, ctx);
+  }
+
+  logger.info('Sim3D', `handleTool result: ${result.message}`);
   logger.info('Sim3D', 'Cycle: 3D render -> MJPEG -> VLM -> bytecode -> UDP -> bridge -> MuJoCo physics');
 
-  // Graceful shutdown
+  // 6. Graceful shutdown
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     logger.info('Sim3D', 'Shutting down...');
-    visionLoop.stop();
+    await handleTool('robot.stop', {}, ctx);
+    if (dreamOnShutdown) await runDreamConsolidation();
     await transmitter.disconnect();
     process.exit(0);
   };
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+
+  // 7. For go_to + dream: wait for navigation to complete, then dream and exit
+  if (mode === 'go_to' && dreamOnShutdown) {
+    await new Promise<void>((resolve) => {
+      const check = setInterval(() => {
+        if (!visionLoop.isRunning()) {
+          clearInterval(check);
+          resolve();
+        }
+      }, 1000);
+    });
+    logger.info('Sim3D', 'Navigation completed, running dream consolidation...');
+    await runDreamConsolidation();
+    await transmitter.disconnect();
+    process.exit(0);
+  }
 }
 
 main().catch((err) => {

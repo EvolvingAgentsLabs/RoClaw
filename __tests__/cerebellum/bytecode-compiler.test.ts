@@ -214,10 +214,12 @@ describe('BytecodeCompiler', () => {
       expect(result![3]).toBe(0);   // clamped from -10
     });
 
-    test('rejects hex with bad checksum', () => {
-      // Valid structure but wrong checksum
+    test('repairs hex with bad checksum', () => {
+      // Valid structure but wrong checksum — compiler auto-repairs
       const result = compiler.compile('AA 01 64 64 00 FF');
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      // Checksum should be corrected: 0x01 ^ 0x64 ^ 0x64 = 0x01
+      expect(result![4]).toBe(0x01);
     });
   });
 

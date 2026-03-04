@@ -69,6 +69,12 @@ Two layers:
 
 The SemanticMap runs as an async background sidecar (`SemanticMapLoop`) alongside the Cerebellum's vision loop. It captures the latest camera frame, asks the VLM to describe the scene, then analyzes the description to build and update the graph. Both `analyzeScene()` and `processScene()` accept optional images for direct vision analysis.
 
+Scene analysis uses a dedicated inference configuration (`mapInfer`) with higher limits than the bytecode inference path — 512 tokens and 30s timeout (vs 64 tokens / 5s for bytecode generation). This is necessary because VLM scene analysis returns rich JSON with location labels, features, and navigation hints, while bytecode output is a single 6-byte command.
+
+In `handleGoTo()`, the SemanticMapLoop is started and an immediate `analyzeNow()` call seeds the topo map with at least one node **before** `planNavigation()` runs. This ensures the navigation planner has topological context from the first frame rather than planning against an empty map.
+
+The `parseJSONSafe()` utility includes truncated JSON recovery — if the VLM output is cut off mid-JSON (e.g., due to token limits), it attempts to salvage the response by trimming trailing incomplete values and closing unclosed brackets.
+
 Navigation planning now accepts optional `strategyHint` and `constraints` parameters, which inject strategy knowledge into the VLM prompt for more informed motor decisions.
 
 The full pipeline is validated with E2E tests using real indoor photographs — see `__tests__/navigation/semantic-map-vision.e2e.test.ts`.
@@ -128,12 +134,13 @@ deprecated: false
 
 ### Seed Strategies
 
-The `_seeds/` directory contains 5 bootstrap strategies with `confidence: 0.3` (theoretical, never tested). These provide useful defaults before the robot has accumulated any real traces:
+The `_seeds/` directory contains 6 bootstrap strategies with `confidence: 0.3` (theoretical, never tested). These provide useful defaults before the robot has accumulated any real traces:
 
 - `seed_4_obstacle-avoidance.md` — Stop and turn when obstacle detected
 - `seed_4_wall-following.md` — Hug wall using differential speed
 - `seed_3_doorway-approach.md` — Slow down, center, proceed through doors
 - `seed_2_room-exploration.md` — Systematic room sweep pattern
+- `seed_2_target-seek.md` — Rotate to scan, then track and approach a visually identifiable target
 - `seed_1_fetch-pattern.md` — Go to X, find Y, return
 
 As the Dreaming Engine processes real traces, it either reinforces seeds (increasing confidence) or deprecates them.
@@ -249,6 +256,14 @@ The algorithm is modeled on biological sleep phases:
 ```bash
 npm run dream      # v2: LLM-powered 3-phase consolidation
 npm run dream:v1   # v1: Statistical 3-opcode sliding-window patterns
+```
+
+Dream consolidation also runs automatically on shutdown when using `run_sim3d.ts` in `go_to` mode (default). Use `--no-dream` to disable:
+
+```bash
+npx tsx scripts/run_sim3d.ts --goal "the red cube"            # dream runs on shutdown (default)
+npx tsx scripts/run_sim3d.ts --goal "the red cube" --no-dream # skip dream
+npx tsx scripts/run_sim3d.ts --explore --dream                # opt-in for explore mode
 ```
 
 ### Configuration

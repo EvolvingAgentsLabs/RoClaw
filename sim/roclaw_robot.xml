@@ -32,6 +32,7 @@
     <material name="obstacle_mat" rgba="0.8 0.3 0.2 1"/>
     <material name="obstacle2_mat" rgba="0.2 0.7 0.3 1"/>
     <material name="obstacle3_mat" rgba="0.9 0.7 0.1 1"/>
+    <material name="red_cube_mat" rgba="1.0 0.0 0.0 1"/>
   </asset>
 
   <worldbody>
@@ -53,6 +54,11 @@
     </body>
     <body name="obstacle3" pos="0.7 -0.3 0.04">
       <geom type="cylinder" size="0.06 0.04" material="obstacle3_mat"/>
+    </body>
+
+    <!-- Bright red cube — navigation target -->
+    <body name="red_cube" pos="-0.6 -0.5 0.1">
+      <geom type="box" size="0.1 0.1 0.1" material="red_cube_mat"/>
     </body>
 
     <!-- ============== RoClaw Robot ============== -->

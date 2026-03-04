@@ -9,7 +9,7 @@ import { logger } from '../shared/logger';
 import { BytecodeCompiler, Opcode, formatHex } from '../2_qwen_cerebellum/bytecode_compiler';
 import { UDPTransmitter } from '../2_qwen_cerebellum/udp_transmitter';
 import { VisionLoop } from '../2_qwen_cerebellum/vision_loop';
-import type { InferenceFunction } from '../2_qwen_cerebellum/inference';
+import { CerebellumInference, type InferenceFunction } from '../2_qwen_cerebellum/inference';
 import { MemoryManager } from '../3_llmunix_memory/memory_manager';
 import { PoseMap, SemanticMap } from '../3_llmunix_memory/semantic_map';
 import { SemanticMapLoop } from '../3_llmunix_memory/semantic_map_loop';
@@ -43,6 +43,9 @@ let topoMap: SemanticMap | null = null;
 let topoMapLoop: SemanticMapLoop | null = null;
 let planner: HierarchicalPlanner | null = null;
 
+// Dedicated inference for scene analysis — higher token limit and longer timeout than bytecode inference
+let mapInference: CerebellumInference | null = null;
+
 // Navigation session state for multi-step plan execution
 interface NavigationSession {
   plan: ExecutionPlan;
@@ -58,6 +61,20 @@ interface NavigationSession {
 let activeSession: NavigationSession | null = null;
 let activeExploreTraceId: string | null = null;
 
+function ensureMapInfer(): InferenceFunction {
+  if (!mapInference) {
+    mapInference = new CerebellumInference({
+      apiKey: process.env.OPENROUTER_API_KEY || '',
+      model: process.env.QWEN_MODEL || 'qwen/qwen-2.5-vl-72b-instruct',
+      maxTokens: 512,
+      timeoutMs: 30000,
+      temperature: 0.3,
+      ...(process.env.LOCAL_INFERENCE_URL ? { apiBaseUrl: process.env.LOCAL_INFERENCE_URL } : {}),
+    });
+  }
+  return mapInference.createInferenceFunction();
+}
+
 function ensurePlanner(ctx: ToolContext): HierarchicalPlanner {
   if (!planner) {
     planner = new HierarchicalPlanner(ctx.infer, memoryManager);
@@ -65,20 +82,20 @@ function ensurePlanner(ctx: ToolContext): HierarchicalPlanner {
   return planner;
 }
 
-function ensureTopoMap(ctx: ToolContext): SemanticMap {
+function ensureTopoMap(): SemanticMap {
   if (!topoMap) {
-    topoMap = new SemanticMap(ctx.infer);
+    topoMap = new SemanticMap(ensureMapInfer());
   }
   return topoMap;
 }
 
 function ensureTopoMapLoop(ctx: ToolContext): SemanticMapLoop {
   if (!topoMapLoop) {
-    const sm = ensureTopoMap(ctx);
+    const sm = ensureTopoMap();
     topoMapLoop = new SemanticMapLoop(
       sm,
       ctx.visionLoop,
-      ctx.infer,
+      ensureMapInfer(),
       ctx.compiler,
       ctx.transmitter,
     );
@@ -149,6 +166,7 @@ export function _resetTopoMap(): void {
   topoMapLoop = null;
   topoMap = null;
   planner = null;
+  mapInference = null;
 }
 
 // =============================================================================
@@ -358,7 +376,7 @@ async function advanceToNextStep(session: NavigationSession, vlmOutput: string):
   // Use topo map for navigation if available
   let navGoal = tacticalGoal;
   try {
-    const sm = ensureTopoMap(ctx);
+    const sm = ensureTopoMap();
     if (sm.getAllNodes().length > 0 && nextStep.targetLabel) {
       const frameBase64 = ctx.visionLoop.getLatestFrameBase64();
       if (frameBase64) {
@@ -547,31 +565,6 @@ async function handleGoTo(location: string, ctx: ToolContext, constraints?: stri
     });
   }
 
-  // --- Topo Navigation (existing) ---
-  let topoNavHint = '';
-  try {
-    const sm = ensureTopoMap(ctx);
-    if (sm.getAllNodes().length > 0) {
-      const frameBase64 = ctx.visionLoop.getLatestFrameBase64();
-      if (frameBase64) {
-        const sceneDesc = await ctx.infer(
-          'You are a robot with a camera. Briefly describe what you see.',
-          'Describe the current scene.',
-          [frameBase64],
-        );
-        const decision = await sm.planNavigation(sceneDesc, location, strategyHintForNav, planConstraints);
-        if (decision && decision.confidence > 0.5) {
-          topoNavHint = ` [TopoMap: "${decision.reasoning}" (confidence: ${decision.confidence.toFixed(2)})]`;
-          logger.info('Tools', `Topo navigation plan: ${decision.action} — ${decision.reasoning}`);
-        }
-      }
-    }
-  } catch (err) {
-    logger.debug('Tools', 'Topo navigation planning failed, falling back to PoseMap', {
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-
   // --- PoseMap fallback (existing) ---
   const knownLocation = poseMap.findNearest(location);
   let baseGoal: string;
@@ -591,7 +584,7 @@ async function handleGoTo(location: string, ctx: ToolContext, constraints?: stri
   const allConstraints = constraints
     ? [...planConstraints, constraints]
     : planConstraints;
-  const goal = allConstraints.length > 0
+  let goal = allConstraints.length > 0
     ? `${baseGoal}\nConstraints: ${allConstraints.join('; ')}`
     : baseGoal;
 
@@ -613,13 +606,46 @@ async function handleGoTo(location: string, ctx: ToolContext, constraints?: stri
 
     await ctx.visionLoop.start(goal);
 
-    // Start topological mapping alongside navigation
+    // --- Seed topo map BEFORE planning navigation ---
+    // Start SemanticMapLoop and run immediate analysis so the topo map
+    // has at least one node for planNavigation() to work with.
     try {
-      ensureTopoMapLoop(ctx).start();
+      const mapLoop = ensureTopoMapLoop(ctx);
+      mapLoop.start();
+      await mapLoop.analyzeNow();
+    } catch {
+      // Topo seeding is best-effort
+    }
+
+    // --- Topo Navigation (uses seeded map) ---
+    let topoNavHint = '';
+    try {
+      const sm = ensureTopoMap();
+      if (sm.getAllNodes().length > 0) {
+        const frameBase64 = ctx.visionLoop.getLatestFrameBase64();
+        if (frameBase64) {
+          const sceneDesc = await ensureMapInfer()(
+            'You are a robot with a camera. Briefly describe what you see.',
+            'Describe the current scene.',
+            [frameBase64],
+          );
+          const decision = await sm.planNavigation(sceneDesc, location, strategyHintForNav, planConstraints);
+          if (decision && decision.confidence > 0.5) {
+            topoNavHint = ` [TopoMap: "${decision.reasoning}" (confidence: ${decision.confidence.toFixed(2)})]`;
+            logger.info('Tools', `Topo navigation plan: ${decision.action} — ${decision.reasoning}`);
+          }
+        }
+      }
     } catch (err) {
-      logger.warn('Tools', 'Failed to start topo map loop', {
+      logger.debug('Tools', 'Topo navigation planning failed, falling back to PoseMap', {
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+
+    // Update VisionLoop goal with topo hint if available
+    if (topoNavHint) {
+      goal = `${goal}${topoNavHint}`;
+      ctx.visionLoop.setGoal(goal);
     }
 
     // Create NavigationSession with arrival/stuck/timeout listeners
