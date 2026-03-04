@@ -1,9 +1,13 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { handleTool, _resetTopoMap, _resetNavigationSession, _getTopoMapLoop, _getPoseMap, _getMemoryManager, type ToolContext } from '../../src/1_openclaw_cortex/roclaw_tools';
 import { BytecodeCompiler, Opcode, formatHex } from '../../src/2_qwen_cerebellum/bytecode_compiler';
 import { UDPTransmitter } from '../../src/2_qwen_cerebellum/udp_transmitter';
 import { VisionLoop } from '../../src/2_qwen_cerebellum/vision_loop';
 import type { InferenceFunction } from '../../src/2_qwen_cerebellum/inference';
 import { HierarchyLevel } from '../../src/3_llmunix_memory/trace_types';
+
+const TOPO_MAP_FILE = path.join(__dirname, '../../src/3_llmunix_memory/traces/topo_map.json');
 
 describe('RoClaw Tools', () => {
   let ctx: ToolContext;
@@ -77,6 +81,8 @@ describe('RoClaw Tools', () => {
 
   afterEach(() => {
     _resetTopoMap();
+    // Clean up topo_map.json to prevent pollution across test files
+    try { fs.unlinkSync(TOPO_MAP_FILE); } catch { /* ignore */ }
   });
 
   // ===========================================================================

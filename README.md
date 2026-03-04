@@ -197,7 +197,7 @@ Strategies are stored as markdown with YAML frontmatter in `src/3_llmunix_memory
 - **Hierarchical Planning** — 4-tier cognitive architecture with strategy-informed goal decomposition
 - **Strategy Store** — Hierarchical memory system with per-level strategies and negative constraints
 - **Dreaming Engine v2** — LLM-powered 3-phase memory consolidation (SWS → REM → Consolidation)
-- **Seed Strategies** — Cold-start bootstrap behaviors (obstacle avoidance, wall following, doorway approach)
+- **Seed Strategies** — Cold-start bootstrap behaviors (obstacle avoidance, wall following, doorway approach, target seek)
 - **Inference Heartbeat** — GET_STATUS keepalive during slow VLM inference prevents ESP32 timeout
 - **Feature Pre-Filter** — Jaccard similarity pre-filter skips obviously-different map nodes, reducing VLM API calls
 - **Permissive Compiler** — Text commands with trailing punctuation, commas, or markdown formatting now compile
@@ -229,7 +229,7 @@ npm run sim:3d
 # 3. Open browser — MuJoCo simulation with orbit camera view
 open http://localhost:8000?bridge=ws://localhost:9090
 
-# 4. Run the VLM loop (separate terminal)
+# 4. Run the VLM loop (separate terminal) — dream consolidation runs on shutdown by default
 npx tsx scripts/run_sim3d.ts --goal "navigate to the red cube"
 ```
 
@@ -326,7 +326,7 @@ RoClaw/
 ├── scripts/
 │   ├── dream.ts                 # Dreaming Engine v2 — uses DreamEngine + adapter
 │   ├── dream_v1.ts              # Dreaming Engine v1 — statistical patterns
-│   └── run_sim3d.ts             # Standalone VLM loop for mjswan simulation
+│   └── run_sim3d.ts             # Full cognitive stack runner for mjswan simulation
 ├── sim/                         # mjswan 3D simulation (MuJoCo + Three.js)
 │   ├── build_scene.py           # Scene builder (generates MJCF + builds frontend)
 │   └── dist/                    # Built mjswan frontend (served by Python HTTP)

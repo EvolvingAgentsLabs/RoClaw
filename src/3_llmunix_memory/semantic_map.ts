@@ -165,13 +165,30 @@ export function extractJSON(text: string): string {
 }
 
 function parseJSONSafe<T>(text: string): T | null {
+  const json = extractJSON(text);
   try {
-    return JSON.parse(extractJSON(text)) as T;
+    return JSON.parse(json) as T;
   } catch {
-    logger.warn('SemanticMap', 'Failed to parse JSON from VLM response', {
-      preview: text.slice(0, 200),
-    });
-    return null;
+    // Try to salvage truncated JSON by closing open brackets
+    try {
+      let open = 0, openArr = 0;
+      for (const ch of json) {
+        if (ch === '{') open++;
+        else if (ch === '}') open--;
+        else if (ch === '[') openArr++;
+        else if (ch === ']') openArr--;
+      }
+      // Trim trailing incomplete value (after last comma or colon)
+      let fixed = json.replace(/,\s*[^}\]]*$/, '');
+      for (let i = 0; i < openArr; i++) fixed += ']';
+      for (let i = 0; i < open; i++) fixed += '}';
+      return JSON.parse(fixed) as T;
+    } catch {
+      logger.warn('SemanticMap', 'Failed to parse JSON from VLM response', {
+        preview: text.slice(0, 200),
+      });
+      return null;
+    }
   }
 }
 
@@ -678,9 +695,7 @@ export class SemanticMap {
       if (!isNaN(idNum) && idNum >= this.nextId) this.nextId = idNum + 1;
     }
     this.edges = data.edges;
-    if (data.currentNodeId !== undefined) {
-      this.currentNodeId = data.currentNodeId;
-    }
+    this.currentNodeId = data.currentNodeId ?? null;
   }
 
   // ---------------------------------------------------------------------------
