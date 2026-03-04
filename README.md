@@ -173,6 +173,8 @@ Between active operation, RoClaw "dreams" — consolidating execution traces int
 2. **REM Sleep** — Abstract successful trace patterns into reusable strategies (or merge with existing ones)
 3. **Consolidation** — Write strategies to disk, generate a dream journal entry, prune old traces
 
+The dream algorithm itself is domain-agnostic (in `src/llmunix-core/dream_engine.ts`). RoClaw plugs in a `DreamDomainAdapter` (`src/3_llmunix_memory/roclaw_dream_adapter.ts`) that provides bytecode RLE compression and robot-specific LLM prompts.
+
 ```bash
 npm run dream    # LLM-powered 3-phase consolidation (v2)
 npm run dream:v1 # Original statistical pattern extraction
@@ -182,6 +184,10 @@ Strategies are stored as markdown with YAML frontmatter in `src/3_llmunix_memory
 
 ## Recent Improvements
 
+- **3D Physics Simulation (mjswan)** — Full closed-loop VLM testing in a MuJoCo WASM + Three.js browser simulation. First-person `eyes` camera renders to an offscreen `WebGLRenderTarget`, streamed as MJPEG to the VisionLoop. The bridge translates bytecodes to MuJoCo velocity actuators. No hardware required.
+- **Navigation Strategy Prompt** — VLM system prompt now includes explicit navigation strategy (ROTATE when blocked, TURN toward targets, STOP only on arrival) and richer examples covering all motor commands. Produces diverse commands (FORWARD, ROTATE_CW, TURN_RIGHT, STOP) instead of only FORWARD.
+- **Checksum Repair** — Bytecode compiler auto-repairs frames where the VLM gets the opcode and params right but miscalculates the XOR checksum. Validates frame markers and opcode before repairing.
+- **LLMunix Core Extraction** — Generic cognitive architecture (`src/llmunix-core/`) decoupled from robotics with zero cross-imports. Provides reusable hierarchical memory, strategy management, trace logging, and a DreamEngine with adapter pattern. RoClaw's `src/3_llmunix_memory/` is now a thin adapter layer.
 - **Stuck Detection & Step Timeouts** — VisionLoop detects repeated identical opcodes (stuck) and step-level timeouts (45s), emitting events that trigger automatic retry with re-planning
 - **Step Retry with Re-Planning** — NavigationSession retries stuck/timed-out steps up to 2x, re-planning via `planStrategicStep()` with fresh scene context before aborting
 - **REACTIVE Trace Generation** — VisionLoop now wraps every 10 bytecodes in a Level 4 REACTIVE trace, giving the Dreaming Engine motor-level data for pattern learning
@@ -199,6 +205,46 @@ Strategies are stored as markdown with YAML frontmatter in `src/3_llmunix_memory
 - **UDP Diagnostics** — Sequence numbers and dropped-frame counter for reliability monitoring
 - **ESP32 IP Filtering** — Optional `CORTEX_IP` allowlist on firmware rejects unauthorized UDP senders
 
+## 3D Physics Simulation (mjswan)
+
+RoClaw integrates with [mjswan](https://github.com/EvolvingAgentsLabs/mjswan) — a browser-based MuJoCo WASM + Three.js physics simulator. The full VLM closed loop runs in simulation with no hardware required:
+
+```
+Browser (MuJoCo + Three.js)  <--WS:9090-->  mjswan Bridge  <--UDP:4210-->  RoClaw stack
+                                             |
+                                             +--> MJPEG :8081 --> VisionLoop --> VLM
+```
+
+The bridge translates RoClaw's 6-byte bytecodes into MuJoCo velocity actuator controls, and streams first-person camera frames from the robot's `eyes` camera back to the VisionLoop as MJPEG. The VLM sees what the robot sees — a ground-level first-person view — enabling it to detect walls, obstacles, and navigate toward targets.
+
+### Running the Simulation
+
+```bash
+# 1. Build the mjswan scene (one-time)
+cd sim && python build_scene.py
+
+# 2. Start the bridge (translates bytecodes <-> MuJoCo physics)
+npm run sim:3d
+
+# 3. Open browser — MuJoCo simulation with orbit camera view
+open http://localhost:8000?bridge=ws://localhost:9090
+
+# 4. Run the VLM loop (separate terminal)
+npx tsx scripts/run_sim3d.ts --goal "navigate to the red cube"
+```
+
+The browser renders the 3D scene with an orbit camera for human viewing, while a second offscreen render pass captures frames from the robot's first-person `eyes` camera (65° FOV, 320x240) mounted on the chassis front. These first-person frames are sent via WebSocket to the bridge, which serves them as an MJPEG stream identical to what a real ESP32-CAM would produce.
+
+### Bridge Architecture
+
+| Port | Protocol | Direction | Purpose |
+|------|----------|-----------|---------|
+| 9090 | WebSocket | Bridge ↔ Browser | Motor commands (ctrl) + camera frames + pose |
+| 4210 | UDP | RoClaw stack → Bridge | 6-byte bytecode frames |
+| 8081 | HTTP MJPEG | Bridge → VisionLoop | First-person camera stream |
+
+The bridge includes a terminal dashboard showing real-time ctrl values, command history, pose, and connection status. Use `--verbose` for line-by-line logs.
+
 ## Quickstart
 
 ### Software Only (no hardware needed)
@@ -211,6 +257,10 @@ cp .env.example .env    # Add your OpenRouter API key
 npm run type-check      # Verify TypeScript compiles
 npm test                # Run test suite
 ```
+
+### With 3D Simulation (recommended first step)
+
+Follow the [3D Physics Simulation](#3d-physics-simulation-mjswan) section above. This validates the full VLM → bytecode → motor loop in a physics-accurate MuJoCo environment before touching hardware.
 
 ### With Hardware
 
@@ -246,28 +296,44 @@ A 20cm 3D-printed cube with two stepper motors and a camera.
 ```
 RoClaw/
 ├── src/
+│   ├── llmunix-core/            # Generic cognitive architecture (0 robotics imports)
+│   │   ├── types.ts             #   HierarchyLevel, TraceOutcome, ActionEntry, Strategy
+│   │   ├── interfaces.ts        #   DreamDomainAdapter, MemorySection, InferenceFunction
+│   │   ├── utils.ts             #   extractJSON, parseJSONSafe
+│   │   ├── strategy_store.ts    #   Configurable strategy store (generic level dirs)
+│   │   ├── trace_logger.ts      #   Generic trace logger (appendAction)
+│   │   ├── memory_manager.ts    #   Section-based memory manager
+│   │   └── dream_engine.ts      #   Adapter-driven 3-phase dream consolidation
 │   ├── 1_openclaw_cortex/       # LLM 1: OpenClaw Gateway Node
 │   │   ├── roclaw_tools.ts      #   Tool handlers (explore, go_to, stop, etc.)
 │   │   └── planner.ts           #   Hierarchical goal decomposition
 │   ├── 2_qwen_cerebellum/       # LLM 2: VLM Motor Controller
 │   │   ├── vision_loop.ts       #   Camera → VLM → bytecode → ESP32 cycle
 │   │   └── bytecode_compiler.ts #   VLM output → 6-byte binary frames
-│   ├── 3_llmunix_memory/        # Dreaming Engine & Memory
-│   │   ├── trace_types.ts       #   Shared types (hierarchy levels, outcomes)
-│   │   ├── trace_logger.ts      #   Hierarchical execution trace recorder
-│   │   ├── strategy_store.ts    #   Read/write hierarchical strategy files
-│   │   ├── memory_manager.ts    #   Strategy-aware memory context
+│   ├── 3_llmunix_memory/        # RoClaw adapter layer for llmunix-core
+│   │   ├── trace_types.ts       #   Re-exports core types + BytecodeEntry compat
+│   │   ├── trace_logger.ts      #   Extends core logger, adds appendBytecode(Buffer)
+│   │   ├── strategy_store.ts    #   Extends core store with RoClaw level dirs
+│   │   ├── memory_manager.ts    #   Extends core, registers hardware/identity/skills
+│   │   ├── roclaw_dream_adapter.ts #  DreamDomainAdapter (bytecode RLE + robot prompts)
 │   │   ├── semantic_map.ts      #   VLM-powered topological graph
 │   │   ├── dream_inference.ts   #   LLM adapter for dreaming engine
 │   │   └── strategies/          #   Hierarchical strategies (4 levels + seeds)
 │   └── shared/                  # Kinematics, safety, logger
 ├── 4_somatic_firmware/          # C++ for ESP32 MCUs
 ├── 5_hardware_cad/              # STL files & Blender scene
+│   └── mjswan_bridge.ts         # 3D sim bridge: bytecodes ↔ MuJoCo via WebSocket
 ├── scripts/
-│   ├── dream.ts                 # Dreaming Engine v2 — LLM-powered consolidation
-│   └── dream_v1.ts              # Dreaming Engine v1 — statistical patterns
+│   ├── dream.ts                 # Dreaming Engine v2 — uses DreamEngine + adapter
+│   ├── dream_v1.ts              # Dreaming Engine v1 — statistical patterns
+│   └── run_sim3d.ts             # Standalone VLM loop for mjswan simulation
+├── sim/                         # mjswan 3D simulation (MuJoCo + Three.js)
+│   ├── build_scene.py           # Scene builder (generates MJCF + builds frontend)
+│   └── dist/                    # Built mjswan frontend (served by Python HTTP)
 ├── docs/                        # Architecture documentation
 └── __tests__/
+    ├── llmunix-core/            # Core tests (import only from llmunix-core/)
+    ├── mjswan-bridge/           # Bridge translation tests (bytecodeToCtrl, speedParam)
     ├── cortex/                  # Planner + tool handler tests
     ├── cerebellum/              # Vision loop, compiler, UDP tests
     ├── memory/                  # Strategy store, trace logger, semantic map
@@ -277,9 +343,10 @@ RoClaw/
 
 The numbered folders encode the architecture:
 
+- **llmunix-core** — The reusable brain. Generic hierarchical cognitive architecture (strategies, traces, dreaming) with zero robotics dependencies. Can be used by any agent that needs hierarchical memory, experience evolution, and memory-as-context for inference.
 1. **Cortex** — The slow thinker. Receives "go to the kitchen" from OpenClaw, decomposes it into a multi-step plan using the Hierarchical Planner and learned strategies.
 2. **Cerebellum** — The fast reactor. Sees camera frames, outputs constraint-aware bytecode motor commands at 2 FPS.
-3. **LLMunix Memory** — The dreamer. Stores hardware specs, hierarchical strategies (4 levels), negative constraints, execution traces, and the semantic map. The Dreaming Engine consolidates traces into strategies offline.
+3. **LLMunix Memory** — The RoClaw adapter. Extends llmunix-core with robotics-specific behavior: bytecode entries, motor-specific LLM prompts, hardware/identity sections, and the semantic map. The Dreaming Engine consolidates traces into strategies offline.
 4. **Somatic Firmware** — The spinal cord. Bytecode-only UDP listener on ESP32-S3. MJPEG streamer on ESP32-CAM.
 5. **Hardware CAD** — The body. 3D-printable parts and assembly reference.
 

@@ -98,3 +98,25 @@ The Cerebellum also monitors for failure conditions during execution:
 When either event fires, the Cortex's NavigationSession triggers a **step retry**: the current step trace is closed as PARTIAL, the planner re-plans the step with fresh scene context via `planStrategicStep()`, and the VisionLoop receives a new goal. After 2 failed retries, the entire navigation session is aborted as FAILURE. This produces trace data that the Dreaming Engine uses to learn negative constraints (what didn't work) and refine strategies.
 
 Path planning and localization live in the **Semantic Map** — a VLM-powered topological graph that runs as an async sidecar to the Cerebellum. It analyzes camera frames to build a map of locations (nodes) and navigation paths (edges), enabling re-identification of visited places and multi-hop pathfinding. See [LLMunix Evolution](04-LLMunix-Evolution.md) for details.
+
+## Simulation Mode (mjswan)
+
+The dual-brain architecture runs identically in simulation. The [mjswan bridge](../src/mjswan_bridge.ts) substitutes for the physical ESP32 hardware:
+
+```
+Cortex / VisionLoop
+  ↓ (UDP bytecodes)
+mjswan Bridge (:4210)           ← replaces ESP32-S3
+  ↓ (WebSocket ctrl messages)
+Browser (MuJoCo + Three.js)     ← replaces physical world
+  ↓ (first-person camera frames via WebSocket)
+mjswan Bridge (:8081 MJPEG)     ← replaces ESP32-CAM
+  ↓
+VisionLoop (same code path as hardware)
+```
+
+The bridge translates bytecodes into MuJoCo velocity actuator controls (`bytecodeToCtrl`) and streams first-person frames from the robot's `eyes` camera back as MJPEG. The Cerebellum's VisionLoop connects to the bridge's MJPEG endpoint exactly as it would connect to a real ESP32-CAM — no code changes required.
+
+The first-person camera is a `THREE.PerspectiveCamera` synced each frame to the MuJoCo `cam_xpos`/`cam_xmat` data of the MJCF-defined `eyes` camera (65° FOV, 320x240, mounted on the chassis front). It renders to an offscreen `WebGLRenderTarget` while the user sees an orbit camera view in the browser.
+
+This allows full closed-loop validation: VLM sees walls → outputs ROTATE → bridge applies wheel velocity → MuJoCo simulates physics → robot turns → VLM sees new scene → outputs FORWARD.
