@@ -358,6 +358,141 @@ these constraints actually appear in the planner's prompt and change its output.
 
 ---
 
+## Priority 11 — Cross-Cutting Test Infrastructure Gaps
+
+### 11.1 MJPEG parser has zero test coverage
+
+`vision_loop.ts` contains a stateful MJPEG frame parser (`parseFrames()`) that
+handles boundary detection, `Content-Length` extraction, and a 500 KB buffer
+overflow guard. This is complex parsing logic with zero direct tests.
+
+**Fix:** Extract `parseFrames()` into a testable function. Write tests for:
+- Valid boundary followed by JPEG payload.
+- Split delivery (boundary in one chunk, payload in next).
+- Corrupt boundary (missing `--frame`).
+- Oversized frame exceeding the 500 KB limit.
+- Empty payload.
+
+### 11.2 No reactive loop integration test (camera → VLM → compiler → UDP)
+
+Individual components are tested in isolation, but no test wires VisionLoop →
+BytecodeCompiler → UDPTransmitter together with a mock MJPEG stream. This is
+the highest-traffic code path in the entire system and has no integration
+coverage.
+
+**Test outline:**
+1. Start a mock MJPEG server streaming a test JPEG on a random port.
+2. Start a mock UDP server on a random port.
+3. Create a VisionLoop with a mock inference function returning `"FORWARD 128 128"`.
+4. Call `processSingleFrame()` (or start the loop for 3 frames).
+5. Assert the UDP server received valid 6-byte bytecode frames.
+6. Tear down all servers.
+
+### 11.3 Inference heartbeat is untested
+
+The heartbeat mechanism sends `GET_STATUS` frames every 1.5 seconds during VLM
+inference to prevent firmware emergency stops. This safety-critical feature has
+no test at all — neither for emission timing nor for the stop/start lifecycle.
+
+**Fix:** Mock the transmitter, call `startInferenceHeartbeat()`, advance timers,
+assert `GET_STATUS` frames were sent at the expected intervals. Assert
+`stopInferenceHeartbeat()` cancels emission.
+
+### 11.4 No fuzz/property-based testing for the bytecode compiler
+
+The compiler's input is non-deterministic VLM text. It handles hex, text
+commands, tool call JSON, trailing punctuation, and markdown formatting. A fuzz
+harness running `compile()` against 10,000 random strings would catch
+unreachable crashes, regex catastrophic backtracking, and unexpected null
+returns.
+
+**Fix:** Add a fuzz test file that generates random strings (ASCII, unicode,
+mixed hex, partial JSON) and asserts `compile()` never throws — it should
+always return `null` or a valid frame.
+
+### 11.5 Test-scoped file pollution
+
+Several test suites write to real paths under `src/` (e.g., `topo_map.json`,
+`semantic_map.json`, trace files) and rely on `afterEach` cleanup. If a test
+crashes before cleanup, it pollutes subsequent runs and potentially the working
+tree.
+
+**Fix:** Use `os.tmpdir()` + random subdirectory for all file-writing tests.
+Pass the temp directory as a config parameter to `StrategyStore`, `TraceLogger`,
+`PoseMap`, and `SemanticMap` constructors. Clean up in `afterAll` with
+`fs.rm(tempDir, { recursive: true })`.
+
+### 11.6 No disk I/O failure tests
+
+TraceLogger, StrategyStore, PoseMap, and SemanticMap all persist to disk but
+have no tests for: write permission errors, corrupt files on load, partially
+written files (simulating crash mid-write), or concurrent file access.
+
+**Fix:** For each persisting component, add tests that:
+- Mock `fs.writeFileSync` to throw `EACCES` and verify graceful degradation.
+- Load a file containing truncated JSON and assert recovery or clear error.
+- Write two instances to the same path concurrently and assert no data loss.
+
+---
+
+## Priority 12 — Per-Component Coverage Holes
+
+### 12.1 VisionLoop — 17 tests but major features untested
+
+Tested: processSingleFrame, frame history, stuck detection, step timeout.
+
+**Untested (from source analysis):**
+- `start()` / `connectToStream()` / `handleDisconnect()` — no MJPEG
+  connection lifecycle tests.
+- `confirmArrival()` — never called in tests.
+- `setConstraints()` / `getConstraints()` — constraint injection path.
+- `setActiveTraceId()` — trace binding.
+- `useToolCallingPrompt` config — Gemini tool-calling mode.
+- `flushFrameHistory()` — explicit flush outside of stop.
+- `bytecode` event emission — never verified.
+- `connected` / `reconnecting` events — never verified.
+- Stats `fps` calculation — never verified.
+
+### 12.2 Planner — 7 tests, missing prompt verification
+
+Tested: cold start, strategy injection, negative constraints, fallback on
+LLM failure.
+
+**Untested:**
+- `currentScene` parameter influence on the plan.
+- Strategy ranking when multiple strategies match the same goal.
+- Empty steps array returned by LLM (edge case).
+- `planStrategicStep` with LLM parse failure or LLM error.
+- Trace integration — `startTrace()` called with correct level and goal.
+
+### 12.3 SemanticMap — unit tests cover PoseMap but not SemanticMap methods
+
+`memory/semantic-map.test.ts` has 15 tests: 12 for PoseMap, 3 for SemanticMap
+persistence. Missing unit-level tests for:
+- `analyzeScene()` — only tested in E2E files requiring API keys.
+- `matchLocation()` — only tested in E2E files.
+- `planNavigation()` — only tested in E2E files.
+- `findPath()` — only tested via e2e.test.ts unit section.
+- Edge creation, `getEdgesFrom()`, `getNode()`, `findNodeByLabel()`.
+- Navigation when target equals current node.
+- Map with edges referencing deleted nodes.
+
+### 12.4 DreamEngine — no test for inference failure during dream
+
+The dream engine calls the inference function during Phase 2 (REM sleep) to
+abstract traces into strategies. No test verifies behavior when inference throws
+or returns garbage mid-dream. The engine should skip the failing batch and
+continue with remaining traces.
+
+### 12.5 Safety config — no NaN/Infinity/zero-division edge cases
+
+`safety-config.test.ts` has 24 tests covering boundary values, but never sends
+`NaN`, `Infinity`, or `0` for division-critical fields (`wheelDiameterCm`,
+`wheelBaseCm`). These should be caught by `validateSafetyConfig()` or the
+clamping functions.
+
+---
+
 ## Summary
 
 | Priority | Items | Theme |
@@ -372,6 +507,8 @@ these constraints actually appear in the planner's prompt and change its output.
 | **P8** | 3 | Sim-to-real gaps that will break on hardware |
 | **P9** | 3 | No failure injection for graceful degradation testing |
 | **P10** | 3 | Learning loop never validated end-to-end |
+| **P11** | 6 | Cross-cutting test infrastructure gaps |
+| **P12** | 5 | Per-component coverage holes |
 
-**Total: 31 items** across 10 priority tiers. All are simulation-only or
+**Total: 42 items** across 12 priority tiers. All are simulation-only or
 test-only — no firmware or hardware changes needed.
