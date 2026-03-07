@@ -15,7 +15,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { HierarchyLevel, TraceOutcome } from '../../llmunix-core/types';
+import { HierarchyLevel, TraceOutcome, TraceSource } from '../../llmunix-core/types';
 import { BytecodeCompiler, formatHex, encodeFrame, Opcode, OPCODE_NAMES } from '../../2_qwen_cerebellum/bytecode_compiler';
 import { TextSceneSimulator, type DreamScenario, type TextFrame } from './text_scene';
 import { DreamInferenceRouter, type DreamInferenceMode, type DreamInferenceRouterConfig } from './dream_inference_router';
@@ -375,6 +375,7 @@ export class DreamScenarioRunner {
     lines.push(`**Duration:** ${result.durationMs}`);
     lines.push(`**Confidence:** ${result.goalReached ? 0.8 : 0.3}`);
     lines.push(`**Strategy:** dream_${scenario.id}`);
+    lines.push(`**Source:** ${TraceSource.DREAM_TEXT}`);
     lines.push('');
 
     // Write individual frame actions as VLM/Bytecode entries

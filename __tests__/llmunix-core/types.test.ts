@@ -6,6 +6,7 @@
 import {
   HierarchyLevel,
   TraceOutcome,
+  TraceSource,
   type ActionEntry,
   type HierarchicalTraceEntry,
   type Strategy,
@@ -63,6 +64,7 @@ describe('LLMunix Core Types', () => {
         locationNode: null,
         sceneDescription: null,
         activeStrategyId: null,
+        source: TraceSource.UNKNOWN_SOURCE,
         outcome: TraceOutcome.UNKNOWN,
         outcomeReason: null,
         durationMs: null,

@@ -8,6 +8,8 @@
 export {
   HierarchyLevel,
   TraceOutcome,
+  TraceSource,
+  TRACE_FIDELITY_WEIGHTS,
   type ActionEntry,
   type HierarchicalTraceEntry,
   type Strategy,

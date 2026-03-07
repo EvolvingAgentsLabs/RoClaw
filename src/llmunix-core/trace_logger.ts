@@ -12,6 +12,7 @@ import * as path from 'path';
 import {
   HierarchyLevel,
   TraceOutcome,
+  TraceSource,
   type HierarchicalTraceEntry,
   type ActionEntry,
 } from './types';
@@ -35,6 +36,8 @@ export interface StartTraceOptions {
   locationNode?: string;
   sceneDescription?: string;
   activeStrategyId?: string;
+  /** Where this trace originates (real robot, 3D sim, dream, etc.) */
+  source?: TraceSource;
 }
 
 // =============================================================================
@@ -68,6 +71,7 @@ export class HierarchicalTraceLogger {
       locationNode: opts?.locationNode ?? null,
       sceneDescription: opts?.sceneDescription ?? null,
       activeStrategyId: opts?.activeStrategyId ?? null,
+      source: opts?.source ?? TraceSource.UNKNOWN_SOURCE,
       outcome: TraceOutcome.UNKNOWN,
       outcomeReason: null,
       durationMs: null,
@@ -171,6 +175,9 @@ export class HierarchicalTraceLogger {
     }
     if (entry.activeStrategyId) {
       lines.push(`**Strategy:** ${entry.activeStrategyId}`);
+    }
+    if (entry.source && entry.source !== TraceSource.UNKNOWN_SOURCE) {
+      lines.push(`**Source:** ${entry.source}`);
     }
 
     lines.push(`**Outcome:** ${entry.outcome}`);

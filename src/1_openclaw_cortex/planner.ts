@@ -12,6 +12,8 @@ import { logger } from '../shared/logger';
 import type { InferenceFunction } from '../2_qwen_cerebellum/inference';
 import { MemoryManager } from '../3_llmunix_memory/memory_manager';
 import { HierarchyLevel, type Strategy, type NegativeConstraint } from '../3_llmunix_memory/trace_types';
+import { TraceSource } from '../llmunix-core/types';
+import { parseJSONSafe } from '../llmunix-core/utils';
 import { traceLogger } from '../3_llmunix_memory/trace_logger';
 
 // =============================================================================
@@ -67,42 +69,18 @@ Output ONLY valid JSON (no markdown, no explanation):
 }`;
 
 // =============================================================================
-// JSON Parsing (handles <think> tags from reasoning models)
-// =============================================================================
-
-function extractJSON(text: string): string {
-  let cleaned = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-  cleaned = cleaned.replace(/^```(?:json)?\s*\n?/gm, '').replace(/\n?```\s*$/gm, '').trim();
-  const start = cleaned.indexOf('{');
-  if (start < 0) return cleaned;
-  let depth = 0;
-  for (let i = start; i < cleaned.length; i++) {
-    if (cleaned[i] === '{') depth++;
-    if (cleaned[i] === '}') depth--;
-    if (depth === 0) return cleaned.slice(start, i + 1);
-  }
-  return cleaned.slice(start);
-}
-
-function parseJSONSafe<T>(text: string): T | null {
-  try {
-    return JSON.parse(extractJSON(text)) as T;
-  } catch {
-    return null;
-  }
-}
-
-// =============================================================================
 // HierarchicalPlanner
 // =============================================================================
 
 export class HierarchicalPlanner {
   private infer: InferenceFunction;
   private memoryManager: MemoryManager;
+  private traceSource: TraceSource;
 
-  constructor(infer: InferenceFunction, memoryManager: MemoryManager) {
+  constructor(infer: InferenceFunction, memoryManager: MemoryManager, traceSource?: TraceSource) {
     this.infer = infer;
     this.memoryManager = memoryManager;
+    this.traceSource = traceSource ?? TraceSource.UNKNOWN_SOURCE;
   }
 
   /**
@@ -114,6 +92,7 @@ export class HierarchicalPlanner {
   async planGoal(mainGoal: string, currentScene?: string): Promise<ExecutionPlan> {
     const traceId = traceLogger.startTrace(HierarchyLevel.GOAL, mainGoal, {
       sceneDescription: currentScene,
+      source: this.traceSource,
     });
 
     // Gather context
@@ -225,6 +204,7 @@ export class HierarchicalPlanner {
       parentTraceId,
       sceneDescription: currentScene,
       activeStrategyId: step.strategy?.id,
+      source: this.traceSource,
     });
 
     // Gather tactical strategies
