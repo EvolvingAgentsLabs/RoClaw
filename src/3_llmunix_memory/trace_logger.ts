@@ -19,6 +19,7 @@ import {
 import {
   HierarchyLevel,
   TraceOutcome,
+  TraceSource,
   type HierarchicalTraceEntry,
 } from '../llmunix-core/types';
 import { type BytecodeEntry, actionToBytecode } from './trace_types';
@@ -170,6 +171,9 @@ export class HierarchicalTraceLogger extends CoreTraceLogger {
     }
     if (entry.activeStrategyId) {
       lines.push(`**Strategy:** ${entry.activeStrategyId}`);
+    }
+    if (entry.source && entry.source !== TraceSource.UNKNOWN_SOURCE) {
+      lines.push(`**Source:** ${entry.source}`);
     }
 
     lines.push(`**Outcome:** ${entry.outcome}`);

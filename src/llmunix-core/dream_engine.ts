@@ -15,6 +15,8 @@ import * as path from 'path';
 import {
   HierarchyLevel,
   TraceOutcome,
+  TraceSource,
+  TRACE_FIDELITY_WEIGHTS,
   type Strategy,
   type NegativeConstraint,
   type DreamJournalEntry,
@@ -34,6 +36,8 @@ export interface ParsedTrace {
   level: HierarchyLevel | null;
   parentTraceId: string | null;
   goal: string;
+  /** Where this trace originated (real robot, 3D sim, dream, etc.) */
+  source: TraceSource;
   outcome: TraceOutcome;
   outcomeReason: string | null;
   durationMs: number | null;
@@ -48,6 +52,10 @@ export interface TraceSequence {
   outcome: TraceOutcome;
   score: number;
   level: HierarchyLevel;
+  /** Dominant source of traces in this sequence */
+  source: TraceSource;
+  /** Fidelity weight derived from source (1.0 = real world, 0.3 = dream) */
+  fidelityWeight: number;
 }
 
 export interface DreamConfig {
@@ -196,6 +204,7 @@ export class DreamEngine {
         const durationMatch = block.match(/\*\*Duration:\*\*\s*(\d+)/);
         const confidenceMatch = block.match(/\*\*Confidence:\*\*\s*([\d.]+)/);
         const strategyMatch = block.match(/\*\*Strategy:\*\*\s*(.+)/);
+        const sourceMatch = block.match(/\*\*Source:\*\*\s*(.+)/);
 
         // Parse actions — support both core (Reasoning/Action) and legacy (VLM/Bytecode) formats
         const actions: ActionEntry[] = [];
@@ -233,12 +242,19 @@ export class DreamEngine {
           ? outcomeStr as TraceOutcome
           : TraceOutcome.UNKNOWN;
 
+        // Parse trace source (defaults to UNKNOWN for legacy traces)
+        const sourceStr = sourceMatch ? sourceMatch[1].trim() : '';
+        const source = (Object.values(TraceSource) as string[]).includes(sourceStr)
+          ? sourceStr as TraceSource
+          : TraceSource.UNKNOWN_SOURCE;
+
         entries.push({
           timestamp,
           traceId: traceIdMatch ? traceIdMatch[1].trim() : null,
           level: levelMatch ? parseInt(levelMatch[1], 10) as HierarchyLevel : null,
           parentTraceId: parentMatch ? parentMatch[1].trim() : null,
           goal: goalMatch[1].trim(),
+          source,
           outcome,
           outcomeReason: reasonMatch ? reasonMatch[1].trim() : null,
           durationMs: durationMatch ? parseInt(durationMatch[1], 10) : null,
@@ -256,6 +272,19 @@ export class DreamEngine {
   // ---------------------------------------------------------------------------
   // Sequence Grouping
   // ---------------------------------------------------------------------------
+
+  /**
+   * Compute the dominant trace source for a group of traces.
+   * Uses the highest-fidelity source present (real > 3d > 2d > dream).
+   */
+  private dominantSource(traces: ParsedTrace[]): TraceSource {
+    const sources = traces.map(t => t.source);
+    // Return the highest-fidelity source present in the group
+    for (const src of [TraceSource.REAL_WORLD, TraceSource.SIM_3D, TraceSource.SIM_2D, TraceSource.DREAM_TEXT]) {
+      if (sources.includes(src)) return src;
+    }
+    return TraceSource.UNKNOWN_SOURCE;
+  }
 
   groupIntoSequences(traces: ParsedTrace[]): TraceSequence[] {
     const sequences: TraceSequence[] = [];
@@ -275,12 +304,15 @@ export class DreamEngine {
     for (const [, group] of parentGroups) {
       const sorted = group.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
       const hasFailure = sorted.some(t => t.outcome === TraceOutcome.FAILURE);
+      const source = this.dominantSource(sorted);
       sequences.push({
         traces: sorted,
         goal: sorted[0].goal,
         outcome: hasFailure ? TraceOutcome.FAILURE : TraceOutcome.SUCCESS,
         score: 0,
         level: sorted[0].level ?? HierarchyLevel.REACTIVE,
+        source,
+        fidelityWeight: TRACE_FIDELITY_WEIGHTS[source],
       });
     }
 
@@ -295,6 +327,7 @@ export class DreamEngine {
 
       if (isNewGroup && currentGroup.length > 0) {
         const hasFailure = currentGroup.some(t => t.outcome === TraceOutcome.FAILURE);
+        const source = this.dominantSource(currentGroup);
         sequences.push({
           traces: currentGroup,
           goal: currentGoal,
@@ -303,6 +336,8 @@ export class DreamEngine {
           ),
           score: 0,
           level: currentGroup[0].level ?? HierarchyLevel.REACTIVE,
+          source,
+          fidelityWeight: TRACE_FIDELITY_WEIGHTS[source],
         });
         currentGroup = [];
       }
@@ -313,12 +348,15 @@ export class DreamEngine {
 
     if (currentGroup.length > 0) {
       const hasFailure = currentGroup.some(t => t.outcome === TraceOutcome.FAILURE);
+      const source = this.dominantSource(currentGroup);
       sequences.push({
         traces: currentGroup,
         goal: currentGoal,
         outcome: hasFailure ? TraceOutcome.FAILURE : TraceOutcome.UNKNOWN,
         score: 0,
         level: currentGroup[0].level ?? HierarchyLevel.REACTIVE,
+        source,
+        fidelityWeight: TRACE_FIDELITY_WEIGHTS[source],
       });
     }
 
@@ -329,6 +367,15 @@ export class DreamEngine {
   // Scoring
   // ---------------------------------------------------------------------------
 
+  /**
+   * Score sequences using fidelity-weighted formula.
+   *
+   * score = (avgConfidence * outcomeWeight * recencyBonus * fidelityWeight) / durationPenalty
+   *
+   * The fidelityWeight ensures real-world traces have higher influence on strategy
+   * formation than dream simulations. A dream trace with score 0.3 is equivalent
+   * to a real-world trace with score 0.3 * 0.3 = 0.09 in terms of influence.
+   */
   scoreSequences(sequences: TraceSequence[]): TraceSequence[] {
     const now = Date.now();
 
@@ -349,7 +396,10 @@ export class DreamEngine {
       const totalDuration = seq.traces.reduce((sum, t) => sum + (t.durationMs ?? 1000), 0);
       const durationPenalty = Math.max(1, totalDuration / 10_000);
 
-      seq.score = (avgConfidence * outcomeWeight * recencyBonus) / durationPenalty;
+      // Fidelity weight: real-world experiences score higher than dreams
+      const fidelity = seq.fidelityWeight;
+
+      seq.score = (avgConfidence * outcomeWeight * recencyBonus * fidelity) / durationPenalty;
     }
 
     return sequences.sort((a, b) => b.score - a.score);
@@ -364,6 +414,7 @@ export class DreamEngine {
       `Goal: ${seq.goal}`,
       `Outcome: ${seq.outcome}`,
       `Level: ${seq.level}`,
+      `Source: ${seq.source} (fidelity: ${seq.fidelityWeight})`,
       `Traces: ${seq.traces.length}`,
     ];
 
@@ -490,7 +541,8 @@ export class DreamEngine {
                 negativeConstraints: parsed.negative_constraints || bestMatch.negativeConstraints,
                 spatialRules: parsed.spatial_rules || bestMatch.spatialRules,
                 successCount: bestMatch.successCount + 1,
-                confidence: Math.min(1.0, bestMatch.confidence + 0.05),
+                // Fidelity-weighted confidence boost: real-world = +0.05, dream = +0.015
+                confidence: Math.min(1.0, bestMatch.confidence + 0.05 * seq.fidelityWeight),
                 sourceTraceIds: [
                   ...bestMatch.sourceTraceIds,
                   ...seq.traces.filter(t => t.traceId).map(t => t.traceId!),
@@ -519,6 +571,8 @@ export class DreamEngine {
 
             if (parsed && parsed.title && parsed.steps) {
               const slug = parsed.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+              // Initial confidence scaled by fidelity: real-world = 0.5, dream = 0.15
+              const initialConfidence = 0.5 * seq.fidelityWeight;
               const newStrategy: Strategy = {
                 id: `strat_${level}_${slug}`,
                 version: 1,
@@ -529,7 +583,7 @@ export class DreamEngine {
                 steps: parsed.steps,
                 negativeConstraints: parsed.negative_constraints || [],
                 ...(parsed.spatial_rules?.length ? { spatialRules: parsed.spatial_rules } : {}),
-                confidence: 0.5,
+                confidence: initialConfidence,
                 successCount: 1,
                 failureCount: 0,
                 sourceTraceIds: seq.traces.filter(t => t.traceId).map(t => t.traceId!),

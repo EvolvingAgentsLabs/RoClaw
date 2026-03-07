@@ -16,6 +16,7 @@ import { PoseMap, SemanticMap } from '../3_llmunix_memory/semantic_map';
 import { SemanticMapLoop } from '../3_llmunix_memory/semantic_map_loop';
 import { HierarchicalPlanner, type ExecutionPlan } from './planner';
 import { HierarchyLevel, TraceOutcome } from '../3_llmunix_memory/trace_types';
+import { TraceSource } from '../llmunix-core/types';
 import { traceLogger } from '../3_llmunix_memory/trace_logger';
 
 // =============================================================================
@@ -33,6 +34,8 @@ export interface ToolContext {
   transmitter: UDPTransmitter;
   visionLoop: VisionLoop;
   infer: InferenceFunction;
+  /** Trace source for memory fidelity (defaults to REAL_WORLD) */
+  traceSource?: TraceSource;
 }
 
 // Module-level singletons — avoids changing ToolContext interface
@@ -94,7 +97,7 @@ function ensureMapInfer(): InferenceFunction {
 
 function ensurePlanner(ctx: ToolContext): HierarchicalPlanner {
   if (!planner) {
-    planner = new HierarchicalPlanner(ctx.infer, memoryManager);
+    planner = new HierarchicalPlanner(ctx.infer, memoryManager, ctx.traceSource);
   }
   return planner;
 }
@@ -383,7 +386,10 @@ async function advanceToNextStep(session: NavigationSession, vlmOutput: string):
   } catch (err) {
     // Fall back to using the step description directly
     session.currentStepTraceId = traceLogger.startTrace(
-      HierarchyLevel.STRATEGY, nextStep.description, { parentTraceId: plan.traceId },
+      HierarchyLevel.STRATEGY, nextStep.description, {
+        parentTraceId: plan.traceId,
+        source: ctx.traceSource ?? TraceSource.REAL_WORLD,
+      },
     );
     logger.debug('Tools', 'Strategic planning for next step failed, using description', {
       error: err instanceof Error ? err.message : String(err),
@@ -490,7 +496,9 @@ async function handleExplore(ctx: ToolContext, constraints?: string): Promise<To
   }
 
   // Create GOAL-level trace for this exploration
-  activeExploreTraceId = traceLogger.startTrace(HierarchyLevel.GOAL, `Explore: ${constraints || 'autonomous'}`);
+  activeExploreTraceId = traceLogger.startTrace(HierarchyLevel.GOAL, `Explore: ${constraints || 'autonomous'}`, {
+    source: ctx.traceSource ?? TraceSource.REAL_WORLD,
+  });
 
   try {
     if (memoryConstraints.length > 0) {

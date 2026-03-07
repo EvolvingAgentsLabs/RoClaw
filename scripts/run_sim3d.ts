@@ -32,6 +32,7 @@ import { DreamEngine } from '../src/llmunix-core/dream_engine';
 import { StrategyStore } from '../src/3_llmunix_memory/strategy_store';
 import { createDreamInference } from '../src/3_llmunix_memory/dream_inference';
 import { roClawDreamAdapter } from '../src/3_llmunix_memory/roclaw_dream_adapter';
+import { TraceSource } from '../src/llmunix-core/types';
 
 dotenv.config();
 
@@ -249,7 +250,8 @@ async function main(): Promise<void> {
   });
 
   // 5. Build ToolContext and dispatch via handleTool
-  const ctx: ToolContext = { compiler, transmitter, visionLoop, infer };
+  //    Tag traces as SIM_3D: physics-based simulation with rendered frames + real VLM
+  const ctx: ToolContext = { compiler, transmitter, visionLoop, infer, traceSource: TraceSource.SIM_3D };
 
   // 6. Physics-based goal confirmation polling — start BEFORE handleTool
   //    (handleTool blocks on topo planning; we need to track distance immediately)

@@ -12,6 +12,8 @@ import {
   HierarchicalTraceLogger,
   HierarchyLevel,
   TraceOutcome,
+  TraceSource,
+  TRACE_FIDELITY_WEIGHTS,
   type DreamDomainAdapter,
   type InferenceFunction,
   type ActionEntry,
@@ -166,8 +168,8 @@ describe('Core DreamEngine', () => {
 
       const now = new Date().toISOString();
       const sequences = engine.groupIntoSequences([
-        { timestamp: now, traceId: 'tr_1', level: HierarchyLevel.STRATEGY, parentTraceId: 'tr_0', goal: 'Sub-step A', outcome: TraceOutcome.SUCCESS, outcomeReason: null, durationMs: 100, confidence: 0.8, strategyId: null, actions: [] },
-        { timestamp: now, traceId: 'tr_2', level: HierarchyLevel.STRATEGY, parentTraceId: 'tr_0', goal: 'Sub-step B', outcome: TraceOutcome.SUCCESS, outcomeReason: null, durationMs: 200, confidence: 0.9, strategyId: null, actions: [] },
+        { timestamp: now, traceId: 'tr_1', level: HierarchyLevel.STRATEGY, parentTraceId: 'tr_0', goal: 'Sub-step A', source: TraceSource.UNKNOWN_SOURCE, outcome: TraceOutcome.SUCCESS, outcomeReason: null, durationMs: 100, confidence: 0.8, strategyId: null, actions: [] },
+        { timestamp: now, traceId: 'tr_2', level: HierarchyLevel.STRATEGY, parentTraceId: 'tr_0', goal: 'Sub-step B', source: TraceSource.UNKNOWN_SOURCE, outcome: TraceOutcome.SUCCESS, outcomeReason: null, durationMs: 200, confidence: 0.9, strategyId: null, actions: [] },
       ]);
 
       expect(sequences).toHaveLength(1);
@@ -185,8 +187,8 @@ describe('Core DreamEngine', () => {
 
       const now = Date.now();
       const sequences = engine.groupIntoSequences([
-        { timestamp: new Date(now).toISOString(), traceId: 'tr_1', level: HierarchyLevel.REACTIVE, parentTraceId: null, goal: 'Task A', outcome: TraceOutcome.SUCCESS, outcomeReason: null, durationMs: 100, confidence: 0.8, strategyId: null, actions: [] },
-        { timestamp: new Date(now + 60000).toISOString(), traceId: 'tr_2', level: HierarchyLevel.REACTIVE, parentTraceId: null, goal: 'Task B', outcome: TraceOutcome.FAILURE, outcomeReason: null, durationMs: 200, confidence: 0.3, strategyId: null, actions: [] },
+        { timestamp: new Date(now).toISOString(), traceId: 'tr_1', level: HierarchyLevel.REACTIVE, parentTraceId: null, goal: 'Task A', source: TraceSource.UNKNOWN_SOURCE, outcome: TraceOutcome.SUCCESS, outcomeReason: null, durationMs: 100, confidence: 0.8, strategyId: null, actions: [] },
+        { timestamp: new Date(now + 60000).toISOString(), traceId: 'tr_2', level: HierarchyLevel.REACTIVE, parentTraceId: null, goal: 'Task B', source: TraceSource.UNKNOWN_SOURCE, outcome: TraceOutcome.FAILURE, outcomeReason: null, durationMs: 200, confidence: 0.3, strategyId: null, actions: [] },
       ]);
 
       // Different goals → different sequences
@@ -211,12 +213,12 @@ describe('Core DreamEngine', () => {
       const now = new Date().toISOString();
       const scored = engine.scoreSequences([
         {
-          traces: [{ timestamp: now, traceId: 'tr_1', level: HierarchyLevel.REACTIVE, parentTraceId: null, goal: 'Good', outcome: TraceOutcome.SUCCESS, outcomeReason: null, durationMs: 1000, confidence: 0.9, strategyId: null, actions: [] }],
-          goal: 'Good', outcome: TraceOutcome.SUCCESS, score: 0, level: HierarchyLevel.REACTIVE,
+          traces: [{ timestamp: now, traceId: 'tr_1', level: HierarchyLevel.REACTIVE, parentTraceId: null, goal: 'Good', source: TraceSource.UNKNOWN_SOURCE, outcome: TraceOutcome.SUCCESS, outcomeReason: null, durationMs: 1000, confidence: 0.9, strategyId: null, actions: [] }],
+          goal: 'Good', outcome: TraceOutcome.SUCCESS, score: 0, level: HierarchyLevel.REACTIVE, source: TraceSource.UNKNOWN_SOURCE, fidelityWeight: TRACE_FIDELITY_WEIGHTS[TraceSource.UNKNOWN_SOURCE],
         },
         {
-          traces: [{ timestamp: now, traceId: 'tr_2', level: HierarchyLevel.REACTIVE, parentTraceId: null, goal: 'Bad', outcome: TraceOutcome.FAILURE, outcomeReason: null, durationMs: 5000, confidence: 0.2, strategyId: null, actions: [] }],
-          goal: 'Bad', outcome: TraceOutcome.FAILURE, score: 0, level: HierarchyLevel.REACTIVE,
+          traces: [{ timestamp: now, traceId: 'tr_2', level: HierarchyLevel.REACTIVE, parentTraceId: null, goal: 'Bad', source: TraceSource.UNKNOWN_SOURCE, outcome: TraceOutcome.FAILURE, outcomeReason: null, durationMs: 5000, confidence: 0.2, strategyId: null, actions: [] }],
+          goal: 'Bad', outcome: TraceOutcome.FAILURE, score: 0, level: HierarchyLevel.REACTIVE, source: TraceSource.UNKNOWN_SOURCE, fidelityWeight: TRACE_FIDELITY_WEIGHTS[TraceSource.UNKNOWN_SOURCE],
         },
       ]);
 
@@ -305,6 +307,7 @@ describe('Core DreamEngine', () => {
           level: HierarchyLevel.REACTIVE,
           parentTraceId: null,
           goal: 'Test',
+          source: TraceSource.REAL_WORLD,
           outcome: TraceOutcome.SUCCESS,
           outcomeReason: null,
           durationMs: 100,
@@ -319,10 +322,236 @@ describe('Core DreamEngine', () => {
         outcome: TraceOutcome.SUCCESS,
         score: 0.8,
         level: HierarchyLevel.REACTIVE,
+        source: TraceSource.REAL_WORLD,
+        fidelityWeight: TRACE_FIDELITY_WEIGHTS[TraceSource.REAL_WORLD],
       });
 
       expect(summary).toContain('Goal: Test');
       expect(summary).toContain('2 actions: A1, A2'); // from mockAdapter.compressActions
+      expect(summary).toContain('Source: REAL_WORLD (fidelity: 1)');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Fidelity-weighted scoring & consolidation
+  // ---------------------------------------------------------------------------
+
+  describe('fidelity weighting', () => {
+    it('should score REAL_WORLD traces higher than DREAM_TEXT traces', () => {
+      const store = new StrategyStore(STRATEGIES_DIR);
+      const engine = new DreamEngine({
+        adapter: mockAdapter,
+        infer: createMockInference(),
+        store,
+        tracesDir: TRACES_DIR,
+      });
+
+      const now = new Date().toISOString();
+      const scored = engine.scoreSequences([
+        {
+          traces: [{ timestamp: now, traceId: 'tr_rw', level: HierarchyLevel.REACTIVE, parentTraceId: null, goal: 'Real task', source: TraceSource.REAL_WORLD, outcome: TraceOutcome.SUCCESS, outcomeReason: null, durationMs: 1000, confidence: 0.8, strategyId: null, actions: [] }],
+          goal: 'Real task', outcome: TraceOutcome.SUCCESS, score: 0, level: HierarchyLevel.REACTIVE,
+          source: TraceSource.REAL_WORLD, fidelityWeight: TRACE_FIDELITY_WEIGHTS[TraceSource.REAL_WORLD],
+        },
+        {
+          traces: [{ timestamp: now, traceId: 'tr_dt', level: HierarchyLevel.REACTIVE, parentTraceId: null, goal: 'Dream task', source: TraceSource.DREAM_TEXT, outcome: TraceOutcome.SUCCESS, outcomeReason: null, durationMs: 1000, confidence: 0.8, strategyId: null, actions: [] }],
+          goal: 'Dream task', outcome: TraceOutcome.SUCCESS, score: 0, level: HierarchyLevel.REACTIVE,
+          source: TraceSource.DREAM_TEXT, fidelityWeight: TRACE_FIDELITY_WEIGHTS[TraceSource.DREAM_TEXT],
+        },
+      ]);
+
+      // REAL_WORLD (1.0) should score higher than DREAM_TEXT (0.3) with same confidence/outcome/duration
+      expect(scored[0].goal).toBe('Real task');
+      expect(scored[0].score).toBeGreaterThan(scored[1].score);
+      // The ratio should approximately reflect the fidelity weight ratio
+      expect(scored[0].score / scored[1].score).toBeCloseTo(1.0 / 0.3, 1);
+    });
+
+    it('should assign fidelityWeight from TRACE_FIDELITY_WEIGHTS when grouping', () => {
+      const store = new StrategyStore(STRATEGIES_DIR);
+      const engine = new DreamEngine({
+        adapter: mockAdapter,
+        infer: createMockInference(),
+        store,
+        tracesDir: TRACES_DIR,
+      });
+
+      const now = new Date().toISOString();
+      const sequences = engine.groupIntoSequences([
+        { timestamp: now, traceId: 'tr_1', level: HierarchyLevel.REACTIVE, parentTraceId: null, goal: 'Dream goal', source: TraceSource.DREAM_TEXT, outcome: TraceOutcome.SUCCESS, outcomeReason: null, durationMs: 100, confidence: 0.8, strategyId: null, actions: [] },
+      ]);
+
+      expect(sequences).toHaveLength(1);
+      expect(sequences[0].source).toBe(TraceSource.DREAM_TEXT);
+      expect(sequences[0].fidelityWeight).toBe(0.3);
+    });
+
+    it('should use highest-fidelity source as dominant source for mixed-source groups', () => {
+      const store = new StrategyStore(STRATEGIES_DIR);
+      const engine = new DreamEngine({
+        adapter: mockAdapter,
+        infer: createMockInference(),
+        store,
+        tracesDir: TRACES_DIR,
+      });
+
+      const now = new Date().toISOString();
+      const sequences = engine.groupIntoSequences([
+        { timestamp: now, traceId: 'tr_1', level: HierarchyLevel.STRATEGY, parentTraceId: 'parent_1', goal: 'Step A', source: TraceSource.DREAM_TEXT, outcome: TraceOutcome.SUCCESS, outcomeReason: null, durationMs: 100, confidence: 0.8, strategyId: null, actions: [] },
+        { timestamp: now, traceId: 'tr_2', level: HierarchyLevel.STRATEGY, parentTraceId: 'parent_1', goal: 'Step B', source: TraceSource.SIM_3D, outcome: TraceOutcome.SUCCESS, outcomeReason: null, durationMs: 200, confidence: 0.9, strategyId: null, actions: [] },
+      ]);
+
+      expect(sequences).toHaveLength(1);
+      // SIM_3D has higher fidelity than DREAM_TEXT, so it should be dominant
+      expect(sequences[0].source).toBe(TraceSource.SIM_3D);
+      expect(sequences[0].fidelityWeight).toBe(TRACE_FIDELITY_WEIGHTS[TraceSource.SIM_3D]);
+    });
+
+    it('should produce lower initial strategy confidence for dream-sourced traces', async () => {
+      const traceLogger = new HierarchicalTraceLogger(TRACES_DIR);
+
+      // Create a parent trace to group under (ensures correct SUCCESS outcome)
+      const parentId = traceLogger.startTrace(HierarchyLevel.GOAL, 'Dream parent', {
+        source: TraceSource.DREAM_TEXT,
+      });
+
+      // Generate dream-sourced child trace
+      const id = traceLogger.startTrace(HierarchyLevel.REACTIVE, 'Dream task', {
+        parentTraceId: parentId,
+        source: TraceSource.DREAM_TEXT,
+      });
+      traceLogger.appendAction(id, 'Dreamed action', 'dream-action-1');
+      traceLogger.endTrace(id, TraceOutcome.SUCCESS, 'Dream completed', 0.8);
+
+      // End parent
+      traceLogger.endTrace(parentId, TraceOutcome.SUCCESS, 'All done', 0.8);
+
+      const store = new StrategyStore(STRATEGIES_DIR);
+      const engine = new DreamEngine({
+        adapter: mockAdapter,
+        infer: createMockInference(),
+        store,
+        tracesDir: TRACES_DIR,
+      });
+
+      const result = await engine.dream();
+
+      // Strategies from dream traces should have initial confidence = 0.5 * 0.3 = 0.15
+      expect(result.strategiesCreated.length).toBeGreaterThanOrEqual(1);
+      const dreamStrategy = result.strategiesCreated[0];
+      expect(dreamStrategy.confidence).toBe(0.5 * TRACE_FIDELITY_WEIGHTS[TraceSource.DREAM_TEXT]);
+    });
+
+    it('should parse source from trace files correctly', () => {
+      // Write a trace with a source tag
+      const traceLogger = new HierarchicalTraceLogger(TRACES_DIR);
+      const id = traceLogger.startTrace(HierarchyLevel.REACTIVE, 'SIM_3D task', {
+        source: TraceSource.SIM_3D,
+      });
+      traceLogger.appendAction(id, 'Simulated action', 'sim-action');
+      traceLogger.endTrace(id, TraceOutcome.SUCCESS, 'Done', 0.9);
+
+      const store = new StrategyStore(STRATEGIES_DIR);
+      const engine = new DreamEngine({
+        adapter: mockAdapter,
+        infer: createMockInference(),
+        store,
+        tracesDir: TRACES_DIR,
+      });
+
+      const traces = engine.parseTraceFiles();
+      expect(traces.length).toBeGreaterThanOrEqual(1);
+      const simTrace = traces.find(t => t.goal === 'SIM_3D task');
+      expect(simTrace).toBeDefined();
+      expect(simTrace!.source).toBe(TraceSource.SIM_3D);
+    });
+
+    it('should default to UNKNOWN_SOURCE for legacy traces without source tag', () => {
+      // Write a trace file manually without **Source:** line
+      const date = new Date().toISOString().split('T')[0];
+      const tracePath = path.join(TRACES_DIR, `trace_${date}.md`);
+      const legacyContent = `# Execution Traces: ${date}
+
+### Time: ${new Date().toISOString()}
+**Trace ID:** tr_legacy_1
+**Level:** 4
+**Goal:** Legacy action
+**Outcome:** SUCCESS
+**Reason:** Done
+**Duration:** 500ms
+**Confidence:** 0.7
+**VLM Reasoning:** Old-style reasoning
+**Compiled Bytecode:** \`AA 01 02 03 06 FF\`
+---
+`;
+
+      if (!fs.existsSync(tracePath)) {
+        fs.writeFileSync(tracePath, legacyContent);
+      } else {
+        fs.appendFileSync(tracePath, legacyContent);
+      }
+
+      const store = new StrategyStore(STRATEGIES_DIR);
+      const engine = new DreamEngine({
+        adapter: mockAdapter,
+        infer: createMockInference(),
+        store,
+        tracesDir: TRACES_DIR,
+      });
+
+      const traces = engine.parseTraceFiles();
+      const legacy = traces.find(t => t.goal === 'Legacy action');
+      expect(legacy).toBeDefined();
+      expect(legacy!.source).toBe(TraceSource.UNKNOWN_SOURCE);
+    });
+
+    it('should include source and fidelity in summarizeSequence output', () => {
+      const store = new StrategyStore(STRATEGIES_DIR);
+      const engine = new DreamEngine({
+        adapter: mockAdapter,
+        infer: createMockInference(),
+        store,
+        tracesDir: TRACES_DIR,
+      });
+
+      const summary = engine.summarizeSequence({
+        traces: [{
+          timestamp: new Date().toISOString(),
+          traceId: 'tr_sim',
+          level: HierarchyLevel.REACTIVE,
+          parentTraceId: null,
+          goal: 'Sim task',
+          source: TraceSource.SIM_3D,
+          outcome: TraceOutcome.SUCCESS,
+          outcomeReason: null,
+          durationMs: 100,
+          confidence: 0.9,
+          strategyId: null,
+          actions: [],
+        }],
+        goal: 'Sim task',
+        outcome: TraceOutcome.SUCCESS,
+        score: 0.5,
+        level: HierarchyLevel.REACTIVE,
+        source: TraceSource.SIM_3D,
+        fidelityWeight: TRACE_FIDELITY_WEIGHTS[TraceSource.SIM_3D],
+      });
+
+      expect(summary).toContain('Source: SIM_3D (fidelity: 0.8)');
+    });
+
+    it('should verify TRACE_FIDELITY_WEIGHTS cover all TraceSource values', () => {
+      for (const source of Object.values(TraceSource)) {
+        expect(TRACE_FIDELITY_WEIGHTS[source]).toBeDefined();
+        expect(TRACE_FIDELITY_WEIGHTS[source]).toBeGreaterThan(0);
+        expect(TRACE_FIDELITY_WEIGHTS[source]).toBeLessThanOrEqual(1);
+      }
+    });
+
+    it('should maintain correct fidelity weight ordering', () => {
+      expect(TRACE_FIDELITY_WEIGHTS[TraceSource.REAL_WORLD]).toBeGreaterThan(TRACE_FIDELITY_WEIGHTS[TraceSource.SIM_3D]);
+      expect(TRACE_FIDELITY_WEIGHTS[TraceSource.SIM_3D]).toBeGreaterThan(TRACE_FIDELITY_WEIGHTS[TraceSource.SIM_2D]);
+      expect(TRACE_FIDELITY_WEIGHTS[TraceSource.SIM_2D]).toBeGreaterThan(TRACE_FIDELITY_WEIGHTS[TraceSource.DREAM_TEXT]);
     });
   });
 });

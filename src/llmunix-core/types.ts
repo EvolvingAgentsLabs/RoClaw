@@ -21,6 +21,47 @@ export enum HierarchyLevel {
 }
 
 // =============================================================================
+// Trace Source & Fidelity
+// =============================================================================
+
+/**
+ * Where a trace was generated. Different sources carry different epistemological
+ * weight — real-world physics experiences are more reliable than text-only dreams.
+ */
+export enum TraceSource {
+  /** Real robot with real camera + real VLM (highest fidelity) */
+  REAL_WORLD = 'REAL_WORLD',
+  /** 3D physics simulator (MuJoCo/mjswan) with rendered camera + real VLM */
+  SIM_3D = 'SIM_3D',
+  /** 2D kinematic simulator with mock/real VLM */
+  SIM_2D = 'SIM_2D',
+  /** Dream simulation: text-only scenes + LLM-simulated inference (lowest fidelity) */
+  DREAM_TEXT = 'DREAM_TEXT',
+  /** Unknown source (legacy traces without source tag) */
+  UNKNOWN_SOURCE = 'UNKNOWN_SOURCE',
+}
+
+/**
+ * Fidelity weights for each trace source. These multiply into the dream engine's
+ * sequence scoring formula, so real-world experiences carry more influence
+ * on strategy formation than simulated dreams.
+ *
+ * The hierarchy of trust:
+ *   REAL_WORLD (1.0)  — ground truth: real physics, real sensors, real VLM
+ *   SIM_3D     (0.8)  — physics engine + rendered frames: accurate dynamics but synthetic visual
+ *   SIM_2D     (0.5)  — kinematics only, no real physics, limited visual fidelity
+ *   DREAM_TEXT (0.3)  — text descriptions, no real perception, simulated inference
+ *   UNKNOWN    (0.6)  — legacy traces, treated as moderate confidence
+ */
+export const TRACE_FIDELITY_WEIGHTS: Record<TraceSource, number> = {
+  [TraceSource.REAL_WORLD]: 1.0,
+  [TraceSource.SIM_3D]: 0.8,
+  [TraceSource.SIM_2D]: 0.5,
+  [TraceSource.DREAM_TEXT]: 0.3,
+  [TraceSource.UNKNOWN_SOURCE]: 0.6,
+};
+
+// =============================================================================
 // Trace Outcomes
 // =============================================================================
 
@@ -65,6 +106,8 @@ export interface HierarchicalTraceEntry {
   sceneDescription: string | null;
   /** Strategy ID being executed, if any */
   activeStrategyId: string | null;
+  /** Where this trace was generated (real robot, 3D sim, dream, etc.) */
+  source: TraceSource;
   /** Outcome of this trace */
   outcome: TraceOutcome;
   /** Human-readable reason for the outcome */
