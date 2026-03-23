@@ -8,7 +8,7 @@
 
 ![Status](https://img.shields.io/badge/Status-Active%20Research-red)
 ![Hardware](https://img.shields.io/badge/Target-ESP32%20S3-green)
-![Runtime LLM](https://img.shields.io/badge/Runtime%20LLM-Qwen3--VL--8B-orange)
+![Runtime LLM](https://img.shields.io/badge/Runtime%20LLM-Gemini%203.1%20Flash%20Lite-orange)
 ![License](https://img.shields.io/badge/License-Apache%202.0-lightgrey)
 
 ---
@@ -29,7 +29,7 @@ RoClaw is the physical embodiment layer of a three-part cognitive ecosystem. It 
 | Repository | Brain Region | Role |
 |---|---|---|
 | **[evolving-memory](https://github.com/EvolvingAgentsLabs/evolving-memory)** | Hippocampus | Cognitive Trajectory Engine — dream consolidation, topological memory, fidelity-weighted traces |
-| **[llmos](https://github.com/EvolvingAgentsLabs/llmos)** | Prefrontal Cortex | Agent kernel — orchestration, applets, skills, workspace UI |
+| **[skillos](https://github.com/EvolvingAgentsLabs/skillos)** | Prefrontal Cortex | Pure Markdown OS — dynamic agent creation, planning, reasoning, skill packages |
 | **RoClaw** (this repo) | Cerebellum | Physical embodiment — vision loop, motor ISA, semantic navigation |
 
 ---
@@ -40,17 +40,19 @@ RoClaw uses a biological dual-brain design: a slow-thinking **Cortex** for strat
 
 ```mermaid
 graph TD
-    USER[User via WhatsApp/Voice] -->|"Go check the kitchen"| OC[OpenClaw Gateway]
-    OC -->|WebSocket| CORTEX[1. Cortex — OpenClaw Node]
+    USER[User via WhatsApp/Voice] -->|"Go check the kitchen"| SKILLOS[skillos — Prefrontal Cortex]
+    SKILLOS -->|"HTTP :8430"| BRIDGE[roclaw_bridge.py]
+    BRIDGE -->|WebSocket| CORTEX[1. Cortex — OpenClaw Node]
     CORTEX -->|"Plan: hallway → kitchen"| PLANNER[Hierarchical Planner]
-    PLANNER -->|"Strategy-informed goal"| CEREBELLUM[2. Cerebellum — Local Qwen-VL]
+    PLANNER -->|"Strategy-informed goal"| CEREBELLUM[2. Cerebellum — Gemini 3.1 Flash Lite]
     CEREBELLUM -->|"Sees camera frame"| COMPILE[Bytecode Compiler]
-    COMPILE -->|"AA 01 64 64 CB FF"| ESP[ESP32-S3 Steppers]
-    ESP -->|"Robot moves"| WORLD((Physical World))
+    COMPILE -->|"AA 01 64 64 CB FF"| ESP[ESP32-S3 / mjswan Bridge]
+    ESP -->|"Robot moves"| WORLD((Physical World / MuJoCo Sim))
     CEREBELLUM -->|"Experience trace"| MEMORY[3. evolving-memory]
     MEMORY -->|"Strategies + constraints"| PLANNER
     MEMORY -.->|"Dream cycle"| DREAM[Dream Engine]
     DREAM -.->|"Consolidated strategies"| MEMORY
+    SKILLOS -->|"HTTP :8420"| MEMORY
 ```
 
 ---
@@ -159,15 +161,19 @@ The system can dream rapidly with text-based simulations, generating many low-co
 
 ---
 
-## Gemini Robotics-ER Integration
+## Gemini Integration
 
-RoClaw supports [Gemini Robotics-ER](https://deepmind.google/models/gemini-robotics/) as a drop-in replacement for Qwen-VL, using native structured tool calling instead of hex bytecode text parsing.
+RoClaw uses **Gemini 3.1 Flash Lite** (`gemini-3.1-flash-lite-preview`) as the default VLM, with native structured tool calling for motor control. Tested and working perfectly with the full mjswan simulation pipeline — the VLM receives first-person camera frames, reasons about the scene, and outputs motor tool calls that compile to 6-byte bytecodes.
 
 ```bash
+# Default: Gemini 3.1 Flash Lite with tool calling
 npx tsx scripts/run_sim3d.ts --gemini --goal "navigate to the red cube"
+
+# Override model via .env
+GEMINI_MODEL=gemini-2.5-flash  # or gemini-robotics-er-1.5-preview
 ```
 
-See [docs/08-Gemini-Robotics-Integration.md](docs/08-Gemini-Robotics-Integration.md) for the full integration report.
+Also supports Qwen-VL via OpenRouter and local inference as alternatives. See [docs/08-Gemini-Robotics-Integration.md](docs/08-Gemini-Robotics-Integration.md) for the integration report.
 
 ---
 
@@ -202,6 +208,35 @@ npx tsx scripts/run_sim3d.ts --gemini --goal "navigate to the red cube"
 | 9090 | WebSocket | Bridge <-> Browser | Motor commands + camera frames + pose |
 | 4210 | UDP | RoClaw stack -> Bridge | 6-byte bytecode frames |
 | 8081 | HTTP MJPEG | Bridge -> VisionLoop | First-person camera stream |
+
+---
+
+## skillos Integration (Prefrontal Cortex)
+
+[skillos](https://github.com/EvolvingAgentsLabs/skillos) is the planning and reasoning layer that sits above RoClaw's reactive motor control. It provides high-level goal decomposition, memory-first navigation planning, and dream consolidation — the Prefrontal Cortex of the Cognitive Trinity.
+
+**Three dedicated RoClaw agents in skillos:**
+- **RoClawNavigationAgent** — Route planning, obstacle recovery, trace logging
+- **RoClawSceneAnalysisAgent** — VLM scene interpretation and location verification
+- **RoClawDreamAgent** — Bio-inspired dream consolidation (SWS → REM → Consolidation)
+
+**Testing skillos + RoClaw (simulation mode):**
+
+```bash
+# Terminal 1: Start evolving-memory (Hippocampus)
+cd evolving-memory && python -m evolving_memory.server --port 8420
+
+# Terminal 2: Start mjswan bridge + scene (already running if you followed sim setup)
+cd RoClaw && npm run sim:3d
+
+# Terminal 3: Start the skillos → RoClaw bridge
+cd skillos && python roclaw_bridge.py --port 8430 --simulate
+
+# Terminal 4: Run skillos with a RoClaw goal
+cd skillos && skillos execute: "Navigate to the kitchen and describe what you see"
+```
+
+The bridge (`roclaw_bridge.py`) translates skillos REST calls into WebSocket tool invocations that RoClaw's OpenClaw Gateway understands. Use `--simulate` for virtual mode or `--gateway ws://localhost:8080` for real hardware.
 
 ---
 
@@ -321,7 +356,7 @@ The numbered folders encode the architecture:
 
 - **llmunix-core** — The cognitive core. Generic types, interfaces, and the `MemoryClient` that connects to evolving-memory's REST API. Zero robotics dependencies.
 1. **Cortex** — The slow thinker. Receives goals from OpenClaw, decomposes them into multi-step plans using the Hierarchical Planner and learned strategies.
-2. **Cerebellum** — The fast reactor. Sees camera frames, outputs constraint-aware bytecode motor commands at 2 FPS.
+2. **Cerebellum** — The fast reactor. Sees camera frames via Gemini 3.1 Flash Lite, outputs constraint-aware bytecode motor commands at 2 FPS.
 3. **LLMunix Memory** — The RoClaw adapter layer. Extends the core with robotics-specific behavior: bytecode entries, motor-specific prompts, the semantic map, and dream domain adapter.
 4. **Somatic Firmware** — The spinal cord. Bytecode-only UDP listener on ESP32-S3. MJPEG streamer on ESP32-CAM.
 5. **Hardware CAD** — The body. 3D-printable parts and assembly reference.
