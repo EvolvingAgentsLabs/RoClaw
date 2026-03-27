@@ -33,6 +33,7 @@ import { GeminiRoboticsInference, ROCLAW_TOOL_DECLARATIONS } from '../src/2_qwen
 import { handleTool, type ToolContext } from '../src/1_openclaw_cortex/roclaw_tools';
 import { MemoryClient } from '../src/llmunix-core/memory_client';
 import { TraceSource } from '../src/llmunix-core/types';
+import { TelemetryMonitor } from '../src/2_qwen_cerebellum/telemetry_monitor';
 
 dotenv.config();
 
@@ -233,7 +234,13 @@ async function main(): Promise<void> {
     logger.warn('Sim3D', 'Camera reconnecting...');
   });
 
-  // 5. Build ToolContext and dispatch via handleTool
+  // 5. Telemetry monitor — listens for telemetry push from the bridge via UDP
+  const telemetryMonitor = new TelemetryMonitor();
+  transmitter.onMessage((msg) => {
+    telemetryMonitor.processMessage(msg);
+  });
+
+  // 6. Build ToolContext and dispatch via handleTool
   //    Tag traces as SIM_3D: physics-based simulation with rendered frames + real VLM
   const ctx: ToolContext = { compiler, transmitter, visionLoop, infer, traceSource: TraceSource.SIM_3D };
 
@@ -280,6 +287,17 @@ async function main(): Promise<void> {
         // GET /health
         if (req.method === 'GET' && urlPath === '/health') {
           sendJson(200, { status: 'ok', tools: toolNames });
+          return;
+        }
+
+        // GET /telemetry — latest telemetry from the bridge
+        if (req.method === 'GET' && urlPath === '/telemetry') {
+          const data = telemetryMonitor.getLastTelemetry();
+          sendJson(200, {
+            success: true,
+            data: data ?? { pose: { x: 0, y: 0, h: 0 }, vel: { left: 0, right: 0 }, stall: false, ts: 0 },
+            stall: telemetryMonitor.isStalled(),
+          });
           return;
         }
 

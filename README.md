@@ -221,7 +221,7 @@ npx tsx scripts/run_sim3d.ts --gemini --goal "navigate to the red cube"
 
 # 4b. Or start the HTTP tool server (stays alive, accepts remote tool invocations)
 npx tsx scripts/run_sim3d.ts --serve --gemini
-# Now curl http://localhost:8440/health or POST /invoke from skillos
+# Now curl http://localhost:8440/health, POST /invoke, or GET /telemetry from skillos
 ```
 
 | Port | Protocol | Direction | Purpose |
@@ -229,7 +229,7 @@ npx tsx scripts/run_sim3d.ts --serve --gemini
 | 9090 | WebSocket | Bridge <-> Browser | Motor commands + camera frames + pose |
 | 4210 | UDP | RoClaw stack <-> Bridge | 6/8-byte bytecode frames + telemetry JSON (500ms push) |
 | 8081 | HTTP MJPEG | Bridge -> VisionLoop | First-person camera stream |
-| 8440 | HTTP | skillos bridge -> Tool server | Tool invocations via `--serve` mode |
+| 8440 | HTTP | skillos bridge -> Tool server | Tool invocations + `GET /telemetry` via `--serve` mode |
 
 ---
 
