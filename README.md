@@ -446,7 +446,7 @@ RoClaw/
 │   ├── 2_qwen_cerebellum/       # LLM 2: VLM Motor Controller
 │   │   ├── vision_loop.ts       #   Camera → VLM → bytecode → ESP32 cycle (STOP-before-infer)
 │   │   ├── bytecode_compiler.ts #   VLM output → 6/8-byte binary frames (V1 + V2)
-│   │   ├── gemini_robotics.ts   #   Gemini inference backend + tool declarations
+│   │   ├── gemini_robotics.ts   #   Gemini inference backend + tool declarations + SSE streaming
 │   │   ├── ollama_inference.ts  #   Ollama inference backend for distilled models
 │   │   ├── udp_transmitter.ts   #   UDP transport with V2 ACK support
 │   │   └── telemetry_monitor.ts #   Telemetry parsing + stall detection
