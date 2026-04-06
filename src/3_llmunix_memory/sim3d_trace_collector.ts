@@ -2,14 +2,15 @@
  * Sim3DTraceCollector — Captures camera-based navigation traces from VisionLoop
  *
  * Hooks into VisionLoop events to collect frame-by-frame action data during
- * 3D simulation runs. Posts consolidated traces to evolving-memory server
- * for dream consolidation and training data export.
+ * 3D simulation runs. Writes consolidated traces as local .md files
+ * following the HierarchicalTraceLogger pattern.
  *
  * Optionally asks the VLM to describe the scene as text after each frame,
  * enabling gap analysis between camera-based and text-only input.
  */
 
-import { MemoryClient, type TraceAction, type IngestTraceRequest, type IngestTraceResponse } from '../llmunix-core/memory_client';
+import * as fs from 'fs';
+import * as path from 'path';
 import { HierarchyLevel, TraceOutcome } from '../llmunix-core/types';
 import type { VisionLoop } from '../2_qwen_cerebellum/vision_loop';
 import type { InferenceFunction } from '../llmunix-core/interfaces';
@@ -20,8 +21,8 @@ import { logger } from '../shared/logger';
 // =============================================================================
 
 export interface Sim3DTraceCollectorConfig {
-  /** evolving-memory server URL (default: http://localhost:8420) */
-  serverUrl?: string;
+  /** Directory for trace output (default: traces/sim3d) */
+  tracesDir?: string;
   /** Maximum actions to keep per trace (oldest get sampled out) */
   maxActions?: number;
   /** Ask VLM to describe what it sees as text (for gap analysis) */
@@ -44,7 +45,7 @@ interface FrameCapture {
 // =============================================================================
 
 export class Sim3DTraceCollector {
-  private client: MemoryClient;
+  private tracesDir: string;
   private maxActions: number;
   private describeScene: boolean;
   private infer: InferenceFunction | null = null;
@@ -57,7 +58,7 @@ export class Sim3DTraceCollector {
   private collecting = false;
 
   constructor(config: Sim3DTraceCollectorConfig = {}) {
-    this.client = new MemoryClient(config.serverUrl ?? 'http://localhost:8420');
+    this.tracesDir = config.tracesDir ?? path.join(process.cwd(), 'traces', 'sim3d');
     this.maxActions = config.maxActions ?? 200;
     this.describeScene = config.describeScene ?? false;
   }
@@ -109,37 +110,76 @@ export class Sim3DTraceCollector {
   }
 
   /**
-   * Post the collected trace to evolving-memory.
-   * Returns null if no frames were collected.
+   * Write the collected trace as a local .md file.
+   * Returns the file path, or null if no frames were collected.
    */
-  async postTrace(): Promise<IngestTraceResponse | null> {
+  writeTrace(): string | null {
     if (this.frames.length === 0) {
-      logger.warn('TraceCollector', 'No frames to post');
+      logger.warn('TraceCollector', 'No frames to write');
       return null;
     }
 
     const actions = this.buildActions();
     const durationMs = Date.now() - this.startTime;
     const confidence = this.outcome === TraceOutcome.SUCCESS ? 0.9 : 0.3;
+    const outcomeStr = this.mapOutcome(this.outcome);
 
-    const req: IngestTraceRequest = {
-      goal: this.goal,
-      hierarchyLevel: HierarchyLevel.GOAL,
-      outcome: this.mapOutcome(this.outcome),
-      confidence,
-      source: 'sim_3d', // lowercase for Python server
-      actions,
-      tags: [
-        'sim3d',
-        `frames:${this.frames.length}`,
-        `duration:${Math.round(durationMs / 1000)}s`,
-        ...(this.describeScene ? ['scene_described'] : []),
-      ],
-    };
+    // Build goal slug for filename
+    const goalSlug = this.goal
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 40);
 
-    const response = await this.client.ingestTrace(req);
-    logger.info('TraceCollector', `Posted trace ${response.trace_id} (${this.frames.length} actions, outcome=${this.outcome})`);
-    return response;
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const timeStr = now.toISOString().split('T')[1].split('.')[0].replace(/:/g, '-');
+    const filename = `${dateStr}_${timeStr}_${goalSlug}.md`;
+    const tracePath = path.join(this.tracesDir, filename);
+
+    // Ensure directory exists
+    if (!fs.existsSync(this.tracesDir)) {
+      fs.mkdirSync(this.tracesDir, { recursive: true });
+    }
+
+    // Build markdown content with YAML frontmatter
+    const lines: string[] = [
+      '---',
+      `timestamp: "${now.toISOString()}"`,
+      `goal: "${this.goal.replace(/"/g, '\\"')}"`,
+      `outcome: ${outcomeStr}`,
+      `source: sim_3d`,
+      `fidelity: 0.8`,
+      `confidence: ${confidence}`,
+      `frames: ${this.frames.length}`,
+      `duration_ms: ${durationMs}`,
+      `duration: "${Math.round(durationMs / 1000)}s"`,
+      ...(this.outcomeReason ? [`outcome_reason: "${this.outcomeReason.replace(/"/g, '\\"')}"`] : []),
+      `tags: [sim3d, ${this.describeScene ? 'scene_described, ' : ''}frames:${this.frames.length}]`,
+      '---',
+      '',
+      `# Sim3D Trace: ${this.goal}`,
+      '',
+      `**Outcome**: ${outcomeStr}${this.outcomeReason ? ` (${this.outcomeReason})` : ''}`,
+      `**Duration**: ${Math.round(durationMs / 1000)}s | **Frames**: ${this.frames.length} | **Confidence**: ${confidence}`,
+      '',
+      '## Actions',
+      '',
+    ];
+
+    for (const action of actions) {
+      lines.push(`### ${new Date(action.timestamp).toISOString()}`);
+      lines.push(`**Reasoning:** ${action.reasoning}`);
+      lines.push(`**Action:** ${action.actionPayload}`);
+      lines.push(`**Result:** ${action.result}`);
+      lines.push('');
+    }
+
+    lines.push('---');
+
+    fs.writeFileSync(tracePath, lines.join('\n'));
+    logger.info('TraceCollector', `Trace written to ${tracePath} (${this.frames.length} actions, outcome=${outcomeStr})`);
+    return tracePath;
   }
 
   /**
@@ -238,29 +278,16 @@ export class Sim3DTraceCollector {
 
   /**
    * Ask the VLM to describe what it sees in text form.
-   * Uses the latest frame from the VisionLoop.
    */
   private async describeCurrentScene(): Promise<string | null> {
     if (!this.infer) return null;
-
-    const describePrompt =
-      'Describe what you see in this camera frame as a detailed text scene description. ' +
-      'Include: objects visible (color, shape, size, approximate distance), ' +
-      'spatial layout (what is left/right/center/far), obstacles, open paths, ' +
-      'and any target objects. Be specific about distances and positions. ' +
-      'Output ONLY the description, no motor commands.';
-
-    // We don't pass images here — the VLM is called separately with just text
-    // The actual scene description needs the frame, but we're in the bytecode handler
-    // which fires AFTER inference. Instead, we'll do a lightweight text-only request.
-    // For gap analysis, we sample every Nth frame via a separate call in run_sim3d.ts
     return null; // Placeholder — actual implementation is in run_sim3d.ts describe loop
   }
 
   /**
-   * Build TraceAction[] from collected frames.
+   * Build action entries from collected frames.
    */
-  private buildActions(): TraceAction[] {
+  private buildActions(): Array<{ timestamp: number; reasoning: string; actionPayload: string; result: string }> {
     let frames = this.frames;
 
     // Sample if too many
@@ -270,6 +297,7 @@ export class Sim3DTraceCollector {
     }
 
     return frames.map(f => ({
+      timestamp: f.timestamp,
       reasoning: f.sceneDescription ?? `[camera frame at ${new Date(f.timestamp).toISOString()}]`,
       actionPayload: f.vlmOutput,
       result: `bytecode=${f.bytecodeHex}`,
@@ -293,7 +321,7 @@ export class Sim3DTraceCollector {
   }
 
   /**
-   * Map TraceOutcome to lowercase string for Python server.
+   * Map TraceOutcome to lowercase string.
    */
   private mapOutcome(outcome: TraceOutcome): string {
     switch (outcome) {

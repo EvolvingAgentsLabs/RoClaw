@@ -1,12 +1,13 @@
 /**
- * Trace Poster — Converts ScenarioResults to evolving-memory server format
+ * Trace Poster — Writes dream simulation results as local .md trace files
  *
- * Wraps MemoryClient to convert dream simulation results into trace ingestion
- * requests compatible with the evolving-memory REST API.
+ * Converts ScenarioResults into markdown trace files with YAML frontmatter,
+ * following the same pattern as HierarchicalTraceLogger and Sim3DTraceCollector.
  */
 
-import { MemoryClient, type TraceAction, type IngestTraceRequest, type IngestTraceResponse } from '../../llmunix-core/memory_client';
-import { HierarchyLevel, TraceOutcome, TraceSource } from '../../llmunix-core/types';
+import * as fs from 'fs';
+import * as path from 'path';
+import { TraceOutcome } from '../../llmunix-core/types';
 import type { ScenarioResult, FrameLogEntry } from './scenario_runner';
 
 // =============================================================================
@@ -14,8 +15,8 @@ import type { ScenarioResult, FrameLogEntry } from './scenario_runner';
 // =============================================================================
 
 export interface TracePosterConfig {
-  /** evolving-memory server URL */
-  serverUrl?: string;
+  /** Directory for dream sim trace output (default: traces/dream_sim) */
+  tracesDir?: string;
   /** Maximum actions per trace (sampling if over) */
   maxActionsPerTrace?: number;
 }
@@ -25,75 +26,72 @@ export interface TracePosterConfig {
 // =============================================================================
 
 export class TracePoster {
-  private client: MemoryClient;
+  private tracesDir: string;
   private maxActions: number;
 
   constructor(config: TracePosterConfig = {}) {
-    this.client = new MemoryClient(config.serverUrl ?? 'http://localhost:8420');
+    this.tracesDir = config.tracesDir ?? path.join(process.cwd(), 'traces', 'dream_sim');
     this.maxActions = config.maxActionsPerTrace ?? 100;
   }
 
   /**
-   * Post a ScenarioResult as a trace to the evolving-memory server.
+   * Write a ScenarioResult as a local .md trace file.
+   * Returns the file path.
    */
-  async postResult(result: ScenarioResult): Promise<IngestTraceResponse> {
+  writeResult(result: ScenarioResult): string {
     const actions = this.buildActions(result.frameLog);
-
-    // Map TS uppercase enums to Python lowercase values
     const outcome = this.mapOutcome(result.outcome);
     const confidence = result.goalReached ? 0.8 : 0.3;
 
-    const req: IngestTraceRequest = {
-      goal: `[DREAM] ${result.title}`,
-      hierarchyLevel: HierarchyLevel.GOAL,
-      outcome,
-      confidence,
-      source: 'dream_text', // lowercase for Python server
-      actions,
-      tags: ['distill', `scenario:${result.scenarioId}`, `mode:${result.inferenceMode}`],
-    };
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const timeStr = now.toISOString().split('T')[1].split('.')[0].replace(/:/g, '-');
+    const scenarioSlug = result.scenarioId.replace(/[^a-z0-9_-]/gi, '-').slice(0, 30);
+    const filename = `${dateStr}_${timeStr}_${scenarioSlug}.md`;
+    const tracePath = path.join(this.tracesDir, filename);
 
-    return this.client.ingestTrace(req);
-  }
-
-  /**
-   * Check server health.
-   */
-  async health(): Promise<boolean> {
-    try {
-      await this.client.health();
-      return true;
-    } catch {
-      return false;
+    // Ensure directory exists
+    if (!fs.existsSync(this.tracesDir)) {
+      fs.mkdirSync(this.tracesDir, { recursive: true });
     }
-  }
 
-  /**
-   * Trigger dream consolidation for the robotics domain.
-   */
-  async runDream() {
-    return this.client.runDream('robotics');
-  }
+    const lines: string[] = [
+      '---',
+      `timestamp: "${now.toISOString()}"`,
+      `goal: "[DREAM] ${result.title.replace(/"/g, '\\"')}"`,
+      `outcome: ${outcome}`,
+      `source: dream_text`,
+      `fidelity: 0.3`,
+      `confidence: ${confidence}`,
+      `scenario_id: "${result.scenarioId}"`,
+      `inference_mode: "${result.inferenceMode}"`,
+      `frames: ${result.framesExecuted}`,
+      `duration_ms: ${result.durationMs}`,
+      `collisions: ${result.collisionCount}`,
+      `goal_reached: ${result.goalReached}`,
+      `tags: [distill, scenario:${result.scenarioId}, mode:${result.inferenceMode}]`,
+      '---',
+      '',
+      `# Dream Sim Trace: ${result.title}`,
+      '',
+      `**Outcome**: ${outcome} | **Goal Reached**: ${result.goalReached}`,
+      `**Duration**: ${Math.round(result.durationMs / 1000)}s | **Frames**: ${result.framesExecuted} | **Collisions**: ${result.collisionCount}`,
+      '',
+      '## Actions',
+      '',
+    ];
 
-  /**
-   * Get server stats.
-   */
-  async stats() {
-    return this.client.stats();
-  }
+    for (const action of actions) {
+      lines.push(`- **Scene**: ${action.sceneText.slice(0, 120)}`);
+      lines.push(`  **VLM**: ${action.vlmOutput}`);
+      lines.push(`  **Result**: ${action.result}`);
+      lines.push('');
+    }
 
-  /**
-   * Query learned strategies from the server.
-   */
-  async queryStrategies(goal: string) {
-    return this.client.query(goal);
-  }
+    lines.push('---');
 
-  /**
-   * Get node details (for extracting strategies/constraints after dreaming).
-   */
-  async getNode(nodeId: string) {
-    return this.client.getNode(nodeId);
+    fs.writeFileSync(tracePath, lines.join('\n'));
+    return tracePath;
   }
 
   // ---------------------------------------------------------------------------
@@ -101,10 +99,10 @@ export class TracePoster {
   // ---------------------------------------------------------------------------
 
   /**
-   * Convert FrameLogEntry[] to TraceAction[] for the server.
+   * Convert FrameLogEntry[] to action summaries.
    * Samples if over maxActions to keep traces manageable.
    */
-  private buildActions(frameLog: FrameLogEntry[]): TraceAction[] {
+  private buildActions(frameLog: FrameLogEntry[]): Array<{ sceneText: string; vlmOutput: string; result: string }> {
     let frames = frameLog;
 
     // Sample if too many frames
@@ -114,14 +112,14 @@ export class TracePoster {
     }
 
     return frames.map(f => ({
-      reasoning: f.sceneText,
-      actionPayload: f.vlmOutput,
+      sceneText: f.sceneText,
+      vlmOutput: f.vlmOutput,
       result: `pose=(${f.pose.x.toFixed(1)},${f.pose.y.toFixed(1)},${f.pose.heading.toFixed(1)}) dist=${f.targetDistance?.toFixed(1) ?? '?'}cm collision=${f.collision}`,
     }));
   }
 
   /**
-   * Map TypeScript uppercase TraceOutcome to Python lowercase values.
+   * Map TypeScript uppercase TraceOutcome to lowercase values.
    */
   private mapOutcome(outcome: TraceOutcome): string {
     switch (outcome) {

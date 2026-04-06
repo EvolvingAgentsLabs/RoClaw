@@ -140,19 +140,4 @@ describe('CoreMemoryManager', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Strategy delegation
-  // ---------------------------------------------------------------------------
-
-  describe('strategy delegation', () => {
-    it('should report no strategies when dir is empty', () => {
-      expect(mm.hasStrategies()).toBe(true); // dir exists
-    });
-
-    it('should delegate to strategy store', () => {
-      const store = mm.getStrategyStore();
-      expect(store).toBeDefined();
-      expect(store.isAvailable()).toBe(true);
-    });
-  });
 });

@@ -22,9 +22,8 @@ RoClaw is the physical embodiment layer of a three-part cognitive ecosystem. It 
 
 | Repository | Brain Region | Role |
 |---|---|---|
-| **[evolving-memory](https://github.com/EvolvingAgentsLabs/evolving-memory)** | Hippocampus | Cognitive Trajectory Engine — dream consolidation, topological memory, fidelity-weighted traces |
-| **[skillos](https://github.com/EvolvingAgentsLabs/skillos)** | Prefrontal Cortex | Pure Markdown OS — dynamic agent creation, planning, reasoning, skill packages |
-| **RoClaw** (this repo) | Cerebellum | Physical embodiment — vision loop, motor ISA, semantic navigation |
+| **[skillos](https://github.com/EvolvingAgentsLabs/skillos)** | Prefrontal Cortex | Pure Markdown OS — planning, reasoning, dream consolidation, skill packages |
+| **RoClaw** (this repo) | Cerebellum | Physical embodiment — vision loop, motor ISA, semantic navigation, trace emitter |
 
 ---
 
@@ -44,11 +43,9 @@ graph TD
     CEREBELLUM -->|"Sees camera frame"| COMPILE[Bytecode Compiler]
     COMPILE -->|"AA 01 64 64 CB FF"| ESP[ESP32-S3 / mjswan Bridge]
     ESP -->|"Robot moves"| WORLD((Physical World / MuJoCo Sim))
-    CEREBELLUM -->|"Experience trace"| MEMORY[3. evolving-memory]
-    MEMORY -->|"Strategies + constraints"| PLANNER
-    MEMORY -.->|"Dream cycle"| DREAM[Dream Engine]
-    DREAM -.->|"Consolidated strategies"| MEMORY
-    SKILLOS -->|"HTTP :8420"| MEMORY
+    CEREBELLUM -->|"Write .md trace"| TRACES[Local .md Trace Files]
+    TRACES -->|"Strategies + constraints"| PLANNER
+    SKILLOS -.->|"Dream consolidation"| TRACES
 ```
 
 ---
@@ -136,26 +133,13 @@ flowchart TD
 
 ---
 
-## Memory Integration (evolving-memory)
+## Memory System (Local Markdown)
 
-RoClaw connects to [evolving-memory](https://github.com/EvolvingAgentsLabs/evolving-memory) via HTTP for experience persistence and dream consolidation. The `MemoryClient` in `src/llmunix-core/memory_client.ts` wraps the REST API:
-
-```typescript
-const client = new MemoryClient("http://localhost:8420");
-
-// Ingest a trace from a navigation session
-await client.ingestTrace(trace);
-
-// Trigger dream consolidation for the robotics domain
-const result = await client.runDream("robotics");
-
-// Query memory for relevant strategies
-const matches = await client.query("obstacle avoidance near doorways");
-```
+RoClaw uses a 100% local markdown memory system. Traces are written as `.md` files during navigation, and strategies are read from local `.md` files organized by hierarchy level. Dream consolidation is handled by [skillos](https://github.com/EvolvingAgentsLabs/skillos) agents that read trace files and produce new strategies.
 
 ### Memory Fidelity Weighting
 
-Not all experiences are equal. evolving-memory weights trace confidence by source fidelity:
+Not all experiences are equal. Trace confidence is weighted by source fidelity:
 
 | Source | Fidelity | Meaning |
 |--------|----------|---------|
@@ -166,6 +150,24 @@ Not all experiences are equal. evolving-memory weights trace confidence by sourc
 
 The system can dream rapidly with text-based simulations, generating many low-confidence hypotheses. When the robot later encounters similar situations in the real world, successful strategies get fast-tracked to high confidence.
 
+### Trace & Strategy Files
+
+```
+RoClaw/
+├── traces/
+│   ├── sim3d/          # Traces from MuJoCo 3D simulation
+│   ├── real_world/     # Traces from physical robot
+│   ├── dream_sim/      # Traces from text-only dream scenarios
+│   └── dreams/         # Dream consolidation journals
+├── strategies/
+│   ├── level_1_goals/  # High-level goal strategies
+│   ├── level_2_routes/ # Route strategies
+│   ├── level_3_tactical/ # Tactical strategies
+│   └── level_4_motor/  # Reactive motor strategies
+```
+
+Each trace is a `.md` file with YAML frontmatter (timestamp, goal, outcome, source, fidelity) and a narrative body. Strategies follow the same format with trigger goals, steps, and confidence scores.
+
 ---
 
 ## Distillation Pipeline (RoClaw-Distill)
@@ -175,11 +177,11 @@ RoClaw includes a complete pipeline for distilling navigation knowledge from a l
 ### How It Works
 
 ```
-1. Navigate → Run 3D sim with --post-traces: Gemini sees camera, issues motor commands
-2. Capture  → Sim3DTraceCollector posts frame-by-frame traces to evolving-memory
-3. Dream    → Dream Engine consolidates strategies + constraints
+1. Navigate → Run 3D sim: Gemini sees camera, issues motor commands
+2. Capture  → Sim3DTraceCollector writes frame-by-frame traces as local .md files
+3. Dream    → skillos dream agent consolidates strategies + constraints
 4. Describe → --describe-scene asks VLM to narrate what it sees (gap analysis)
-5. Export   → /export/training-data → JSONL in Qwen3-VL chat format
+5. Export   → Extract training data from trace .md files → JSONL
 6. Train    → Unsloth LoRA fine-tuning on Google Colab
 7. Deploy   → Ollama serves the GGUF model locally
 8. Verify   → Benchmark against the Gemini teacher
@@ -187,20 +189,17 @@ RoClaw includes a complete pipeline for distilling navigation knowledge from a l
 
 ### Camera-Based Trace Capture (Validated)
 
-The 3D simulation captures real VLM navigation traces with `--post-traces`. Tested end-to-end: robot navigated 2.55m → 0.41m toward a red cube, trace posted, dream consolidation created new knowledge nodes.
+The 3D simulation captures real VLM navigation traces as local `.md` files. Tested end-to-end: robot navigated 2.55m → 0.41m toward a red cube, trace written to `traces/sim3d/`, dream consolidation via skillos created new strategies.
 
 ```bash
-# Start the evolving-memory server
-cd ../evolving-memory
-GEMINI_API_KEY=<key> PYTHONPATH=src python3.12 -m evolving_memory.server --llm gemini --port 8420
-
 # Start 3D sim stack (scene + bridge + browser)
-cd ../RoClaw/sim && python build_scene.py     # serves :8000
-cd ../RoClaw && npm run sim:3d                # :9090 WS, :4210 UDP, :8081 MJPEG
+cd sim && python build_scene.py               # serves :8000
+npm run sim:3d                                # :9090 WS, :4210 UDP, :8081 MJPEG
 open http://localhost:8000?bridge=ws://localhost:9090
 
 # Run with trace capture + scene description for gap analysis
-npx tsx scripts/run_sim3d.ts --gemini --post-traces --describe-scene --goal "navigate to the red cube"
+npx tsx scripts/run_sim3d.ts --gemini --describe-scene --goal "navigate to the red cube"
+# Traces written to traces/sim3d/*.md
 ```
 
 ### Gap Analysis: Camera vs Text-Only
@@ -209,15 +208,7 @@ The `--describe-scene` flag asks the VLM to describe each camera frame as text, 
 
 ### Text-Based Flywheel (Scenario Generator)
 
-For bulk data generation with randomized arenas:
-
-```bash
-# Run 200 randomized text-only scenarios with periodic dream consolidation
-npx tsx scripts/distill_flywheel.ts --count 200 --batch-size 20 --text-model gemini-3.1-flash-lite-preview
-
-# Export training data
-curl http://localhost:8420/export/training-data?outcome=success > training_data.jsonl
-```
+For bulk data generation with randomized arenas, use the dream simulator's scenario runner. Dream consolidation is triggered via skillos after trace collection.
 
 ### Scenario Generator
 
@@ -326,20 +317,17 @@ cd skillos && skillos execute: "Navigate to the kitchen and describe what you se
 **Testing skillos + RoClaw (live MuJoCo simulation):**
 
 ```bash
-# Terminal 1: Start evolving-memory (Hippocampus)
-cd evolving-memory && python -m evolving_memory.server --port 8420
-
-# Terminal 2: Start mjswan scene + bridge
+# Terminal 1: Start mjswan scene + bridge
 cd RoClaw/sim && python build_scene.py   # serves :8000
 cd RoClaw && npm run sim:3d              # :9090 WS, :4210 UDP, :8081 MJPEG
 
-# Terminal 3: Start the HTTP tool server (initializes VisionLoop once, stays alive)
+# Terminal 2: Start the HTTP tool server (initializes VisionLoop once, stays alive)
 cd RoClaw && npx tsx scripts/run_sim3d.ts --serve --gemini   # :8440
 
-# Terminal 4: Start the skillos → tool server bridge
+# Terminal 3: Start the skillos → tool server bridge
 cd skillos && python roclaw_bridge.py --port 8430 --tool-server http://localhost:8440
 
-# Terminal 5: Run skillos with a RoClaw goal
+# Terminal 4: Run skillos with a RoClaw goal
 cd skillos && skillos execute: "Navigate to the red cube and describe what you see"
 ```
 
@@ -428,7 +416,6 @@ RoClaw/
 │   ├── llmunix-core/            # Cognitive core (0 robotics imports)
 │   │   ├── types.ts             #   HierarchyLevel, TraceOutcome, Strategy
 │   │   ├── interfaces.ts        #   DreamDomainAdapter, InferenceFunction
-│   │   ├── memory_client.ts     #   HTTP client for evolving-memory REST API
 │   │   ├── memory_manager.ts    #   Section-based memory manager
 │   │   └── utils.ts             #   extractJSON, parseJSONSafe
 │   ├── 1_openclaw_cortex/       # LLM 1: OpenClaw Gateway Node
@@ -443,15 +430,14 @@ RoClaw/
 │   │   └── telemetry_monitor.ts #   Telemetry parsing + stall detection
 │   ├── 3_llmunix_memory/        # RoClaw memory adapter layer
 │   │   ├── semantic_map.ts      #   VLM-powered topological graph
-│   │   ├── roclaw_dream_adapter.ts #  DreamDomainAdapter for robotics
-│   │   ├── strategy_store.ts    #   Strategy management (local + remote)
+│   │   ├── strategy_store.ts    #   Strategy management (local .md files)
 │   │   ├── trace_logger.ts      #   Trace logging with bytecode support
 │   │   ├── strategies/          #   Hierarchical strategies (4 levels + seeds)
 │   │   └── dream_simulator/     #   Text-based dream simulation
 │   │       ├── text_scene.ts        # TextSceneSimulator + 5 prebuilt scenarios
 │   │       ├── scenario_runner.ts   # DreamScenarioRunner (perception-action loop)
 │   │       ├── scenario_generator.ts # Randomized scenario generation (seedable PRNG)
-│   │       ├── trace_poster.ts      # Post traces to evolving-memory server
+│   │       ├── trace_poster.ts      # Write dream sim results as local .md files
 │   │       └── dream_inference_router.ts # Gemini/Ollama inference routing
 │   └── shared/                  # Kinematics, safety, logger
 ├── 4_somatic_firmware/          # C++ for ESP32 MCUs
@@ -461,9 +447,7 @@ RoClaw/
 │   └── distill_qwen3vl.ipynb    # Colab notebook: Unsloth LoRA fine-tuning
 ├── Modelfile                    # Ollama model definition for distilled GGUF
 ├── scripts/
-│   ├── dream.ts                 # Trigger dream cycle via evolving-memory
 │   ├── run_sim3d.ts             # Full cognitive stack (--gemini or --ollama)
-│   ├── distill_flywheel.ts      # Automated scenario generation + trace posting
 │   ├── benchmark_distill.ts     # Gemini vs Ollama benchmark comparison
 │   └── create_ollama_model.sh   # Import GGUF model into Ollama
 ├── sim/                         # mjswan 3D simulation (MuJoCo + Three.js)
@@ -480,7 +464,7 @@ RoClaw/
 
 The numbered folders encode the architecture:
 
-- **llmunix-core** — The cognitive core. Generic types, interfaces, and the `MemoryClient` that connects to evolving-memory's REST API. Zero robotics dependencies.
+- **llmunix-core** — The cognitive core. Generic types, interfaces, and the section-based memory manager. Zero robotics dependencies.
 1. **Cortex** — The slow thinker. Receives goals from OpenClaw, decomposes them into multi-step plans using the Hierarchical Planner and learned strategies.
 2. **Cerebellum** — The fast reactor. Sees camera frames via Gemini 3.1 Flash Lite, outputs constraint-aware bytecode motor commands at 2 FPS. Sends STOP-before-inference to prevent coasting blind during VLM thinking. Monitors telemetry for stall detection.
 3. **LLMunix Memory** — The RoClaw adapter layer. Extends the core with robotics-specific behavior: bytecode entries, motor-specific prompts, the semantic map, and dream domain adapter.
@@ -504,6 +488,6 @@ Apache 2.0 — Built by [Evolving Agents Labs](https://github.com/EvolvingAgents
 
 <div align="center">
 
-*A VLM sees through a camera. It reasons about the world. It outputs raw motor bytecodes. The robot moves. The experience flows to evolving-memory, where dreams consolidate it into strategy. Three repos, one cognitive architecture. This is RoClaw.*
+*A VLM sees through a camera. It reasons about the world. It outputs raw motor bytecodes. The robot moves. The experience is captured as markdown traces. skillos dreams consolidate them into strategy. Two repos, one cognitive architecture. This is RoClaw.*
 
 </div>

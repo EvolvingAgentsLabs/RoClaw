@@ -13,7 +13,6 @@
  * Usage:
  *   npx tsx scripts/run_sim3d.ts --goal "navigate to the red box"
  *   npx tsx scripts/run_sim3d.ts --explore
- *   npx tsx scripts/run_sim3d.ts --goal "the red cube" --dream
  *   npx tsx scripts/run_sim3d.ts --goal "the door" --constraints "stay close to walls"
  *   npx tsx scripts/run_sim3d.ts --serve --gemini           # HTTP tool server on :8440
  *   npx tsx scripts/run_sim3d.ts --serve --serve-port 9000  # custom port
@@ -31,7 +30,6 @@ import { VisionLoop } from '../src/2_qwen_cerebellum/vision_loop';
 import { CerebellumInference } from '../src/2_qwen_cerebellum/inference';
 import { GeminiRoboticsInference, ROCLAW_TOOL_DECLARATIONS } from '../src/2_qwen_cerebellum/gemini_robotics';
 import { handleTool, type ToolContext } from '../src/1_openclaw_cortex/roclaw_tools';
-import { MemoryClient } from '../src/llmunix-core/memory_client';
 import { TraceSource, TraceOutcome } from '../src/llmunix-core/types';
 import { TelemetryMonitor } from '../src/2_qwen_cerebellum/telemetry_monitor';
 import { Sim3DTraceCollector } from '../src/3_llmunix_memory/sim3d_trace_collector';
@@ -60,16 +58,14 @@ const config = {
 
 let goal = '';
 let mode: 'go_to' | 'explore' = 'go_to';
-let dreamOnShutdown: boolean | undefined;
 let constraints: string | undefined;
 let useGemini = false;
 let useOllama = false;
 let ollamaModelName = 'roclaw-nav:q8_0';
 let serveMode = false;
 let servePort = 8440;
-let postTraces = false;
+let collectTraces = true;
 let describeScene = false;
-let memoryServerUrl = process.env.MEMORY_SERVER_URL || 'http://localhost:8420';
 
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
@@ -79,12 +75,6 @@ for (let i = 0; i < args.length; i++) {
       break;
     case '--explore':
       mode = 'explore';
-      break;
-    case '--dream':
-      dreamOnShutdown = true;
-      break;
-    case '--no-dream':
-      dreamOnShutdown = false;
       break;
     case '--constraints':
       constraints = args[++i] || '';
@@ -104,14 +94,11 @@ for (let i = 0; i < args.length; i++) {
     case '--serve-port':
       servePort = parseInt(args[++i] || '8440', 10);
       break;
-    case '--post-traces':
-      postTraces = true;
+    case '--no-traces':
+      collectTraces = false;
       break;
     case '--describe-scene':
       describeScene = true;
-      break;
-    case '--memory-server':
-      memoryServerUrl = args[++i] || memoryServerUrl;
       break;
     case '--help':
       console.log(`Usage: npx tsx scripts/run_sim3d.ts [options]
@@ -119,65 +106,36 @@ for (let i = 0; i < args.length; i++) {
 Options:
   --goal <text>         Navigate to a described location (default mode)
   --explore             Explore the environment autonomously
-  --dream               Run dream consolidation on shutdown (default for go_to)
-  --no-dream            Disable dream consolidation on shutdown
   --constraints <text>  Additional constraints for navigation
   --gemini              Use Gemini Robotics-ER instead of Qwen-VL (requires GOOGLE_API_KEY)
   --ollama              Use Ollama with a fine-tuned local model
   --ollama-model <name> Ollama model name (default: roclaw-nav:q8_0)
   --serve               Start HTTP tool server instead of running a single goal
   --serve-port <port>   Port for the HTTP tool server (default: 8440)
-  --post-traces         Post navigation traces to evolving-memory server
+  --no-traces           Disable trace file collection
   --describe-scene      Ask VLM to describe camera scenes as text (gap analysis)
-  --memory-server <url> evolving-memory server URL (default: http://localhost:8420)
   --help                Show this help message
 
 Examples:
   npx tsx scripts/run_sim3d.ts --goal "navigate to the red box"
   npx tsx scripts/run_sim3d.ts --explore
-  npx tsx scripts/run_sim3d.ts --goal "the red cube" --dream
   npx tsx scripts/run_sim3d.ts --goal "the door" --constraints "stay close to walls"
   GOOGLE_API_KEY=... npx tsx scripts/run_sim3d.ts --gemini --goal "find the red cube"
   npx tsx scripts/run_sim3d.ts --ollama --goal "find the red cube"  # Local fine-tuned model
   npx tsx scripts/run_sim3d.ts --ollama --ollama-model roclaw-nav:q4km --goal "the red cube"
   npx tsx scripts/run_sim3d.ts --serve --gemini  # Tool server on :8440
   npx tsx scripts/run_sim3d.ts --serve --serve-port 9000 --gemini
-  # Post traces to evolving-memory + describe what the VLM sees:
-  npx tsx scripts/run_sim3d.ts --gemini --post-traces --describe-scene --goal "find the red cube"
+  # Collect traces with scene descriptions for gap analysis:
+  npx tsx scripts/run_sim3d.ts --gemini --describe-scene --goal "find the red cube"
 `);
       process.exit(0);
   }
 }
 
-// Default dream on for go_to mode (traces are always collected anyway)
-if (mode === 'go_to' && dreamOnShutdown === undefined) {
-  dreamOnShutdown = true;
-}
-dreamOnShutdown = dreamOnShutdown ?? false;
-
 // Default goal for go_to mode if none specified
 if (mode === 'go_to' && !goal) {
   goal = 'explore the arena and avoid obstacles';
   mode = 'explore'; // no goal means explore
-}
-
-// =============================================================================
-// Dream consolidation
-// =============================================================================
-
-async function runDreamConsolidation(): Promise<void> {
-  const client = new MemoryClient(memoryServerUrl);
-
-  try {
-    await client.health();
-  } catch {
-    logger.warn('Sim3D', `Cannot reach memory server at ${memoryServerUrl} — run 'python -m evolving_memory.server' first.`);
-    return;
-  }
-
-  logger.info('Sim3D', 'Running dream consolidation via evolving-memory server...');
-  const result = await client.runDream('robotics');
-  logger.info('Sim3D', `Dream: ${result.traces_processed} traces → ${result.nodes_created} created, ${result.nodes_merged} merged`);
 }
 
 // =============================================================================
@@ -192,8 +150,7 @@ async function main(): Promise<void> {
     logger.info('Sim3D', `Mode: ${mode}${mode === 'go_to' ? ` | Goal: "${goal}"` : ''}`);
   }
   if (constraints) logger.info('Sim3D', `Constraints: "${constraints}"`);
-  if (dreamOnShutdown) logger.info('Sim3D', 'Dream consolidation enabled on shutdown');
-  if (postTraces) logger.info('Sim3D', `Trace posting enabled → ${memoryServerUrl}`);
+  if (collectTraces) logger.info('Sim3D', 'Trace collection enabled → traces/sim3d/');
   if (describeScene) logger.info('Sim3D', 'Scene description enabled (gap analysis)');
 
   // 1. Compiler
@@ -282,11 +239,10 @@ async function main(): Promise<void> {
     telemetryMonitor.processMessage(msg);
   });
 
-  // 5b. Trace collector — captures camera-based traces for evolving-memory
+  // 5b. Trace collector — captures camera-based traces as local .md files
   let traceCollector: Sim3DTraceCollector | null = null;
-  if (postTraces) {
+  if (collectTraces) {
     traceCollector = new Sim3DTraceCollector({
-      serverUrl: memoryServerUrl,
       describeScene,
     });
     if (describeScene) {
@@ -420,7 +376,6 @@ async function main(): Promise<void> {
             shuttingDown = true;
             logger.info('Serve', 'Shutdown requested via HTTP');
             await handleTool('robot.stop', {}, ctx);
-            if (dreamOnShutdown) await runDreamConsolidation();
             await transmitter.disconnect();
             server.close();
             process.exit(0);
@@ -449,7 +404,6 @@ async function main(): Promise<void> {
       shuttingDown = true;
       logger.info('Serve', 'Shutting down...');
       await handleTool('robot.stop', {}, ctx);
-      if (dreamOnShutdown) await runDreamConsolidation();
       await transmitter.disconnect();
       server.close();
       process.exit(0);
@@ -546,23 +500,17 @@ async function main(): Promise<void> {
   logger.info('Sim3D', `handleTool result: ${result.message}`);
   logger.info('Sim3D', 'Cycle: 3D render -> MJPEG -> VLM -> bytecode -> UDP -> bridge -> MuJoCo physics');
 
-  // 7. Post traces + scene analysis helper
-  async function postCollectedTraces(): Promise<void> {
+  // 7. Write traces + scene analysis helper
+  async function writeCollectedTraces(): Promise<void> {
     if (!traceCollector) return;
 
     traceCollector.detach(visionLoop);
     const summary = traceCollector.getSummary();
     logger.info('Sim3D', `Trace collection: ${summary.frames} frames, outcome=${summary.outcome}, ${summary.durationMs}ms`);
 
-    try {
-      const response = await traceCollector.postTrace();
-      if (response) {
-        logger.info('Sim3D', `Trace posted: ${response.trace_id} (session ${response.session_id})`);
-      }
-    } catch (err) {
-      logger.error('Sim3D', 'Failed to post trace', {
-        error: err instanceof Error ? err.message : String(err),
-      });
+    const tracePath = traceCollector.writeTrace();
+    if (tracePath) {
+      logger.info('Sim3D', `Trace written: ${tracePath}`);
     }
 
     // Print scene description gap analysis if enabled
@@ -587,8 +535,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     logger.info('Sim3D', 'Shutting down...');
     await handleTool('robot.stop', {}, ctx);
-    await postCollectedTraces();
-    if (dreamOnShutdown) await runDreamConsolidation();
+    await writeCollectedTraces();
     await transmitter.disconnect();
     process.exit(0);
   };
@@ -596,8 +543,8 @@ async function main(): Promise<void> {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  // 9. For go_to + dream: wait for navigation to complete, then post traces + dream and exit
-  if (mode === 'go_to' && dreamOnShutdown) {
+  // 9. For go_to: wait for navigation to complete, then write traces and exit
+  if (mode === 'go_to') {
     await new Promise<void>((resolve) => {
       const check = setInterval(() => {
         if (!visionLoop.isRunning()) {
@@ -607,9 +554,7 @@ async function main(): Promise<void> {
       }, 1000);
     });
     logger.info('Sim3D', 'Navigation completed');
-    await postCollectedTraces();
-    logger.info('Sim3D', 'Running dream consolidation...');
-    await runDreamConsolidation();
+    await writeCollectedTraces();
     await transmitter.disconnect();
     process.exit(0);
   }

@@ -5,14 +5,13 @@
  * (e.g., hardware, identity, skills) and the core assembles them into
  * a unified context for LLM consumption.
  *
- * Strategy storage has moved to evolving-memory server. Strategy methods
- * now delegate to MemoryClient when available, or return empty results.
+ * All memory is local filesystem-based (.md files). Dream consolidation
+ * is handled externally by skillos agents reading trace files directly.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import type { MemorySection } from './interfaces';
-import { MemoryClient } from './memory_client';
 
 // =============================================================================
 // Configuration
@@ -21,7 +20,6 @@ import { MemoryClient } from './memory_client';
 export interface CoreMemoryManagerConfig {
   tracesDir: string;
   strategiesDir: string;
-  memoryServerUrl?: string;
 }
 
 // =============================================================================
@@ -45,14 +43,10 @@ export class CoreMemoryManager {
   private sections = new Map<string, MemorySection>();
   protected tracesDir: string;
   protected strategiesDir: string;
-  private memoryClient: MemoryClient | null = null;
 
   constructor(config: CoreMemoryManagerConfig) {
     this.tracesDir = config.tracesDir;
     this.strategiesDir = config.strategiesDir;
-    if (config.memoryServerUrl) {
-      this.memoryClient = new MemoryClient(config.memoryServerUrl);
-    }
   }
 
   /**
@@ -114,13 +108,6 @@ export class CoreMemoryManager {
     if (traces) parts.push(`## Recent Traces\n${traces}`);
 
     return parts.join('\n\n');
-  }
-
-  /**
-   * Get the MemoryClient for remote strategy/memory queries.
-   */
-  getMemoryClient(): MemoryClient | null {
-    return this.memoryClient;
   }
 
   /**
