@@ -9,7 +9,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../shared/logger';
-import { HierarchyLevel } from '../llmunix-core/types';
+import { HierarchyLevel, type Strategy, type NegativeConstraint } from '../llmunix-core/types';
 import { CoreMemoryManager, type CoreMemoryManagerConfig } from '../llmunix-core/memory_manager';
 import { StrategyStore } from './strategy_store';
 
@@ -36,25 +36,17 @@ function safeRead(filePath: string): string {
 export class MemoryManager extends CoreMemoryManager {
   private systemDir: string;
   private skillsDir: string;
+  private strategyStore: StrategyStore;
 
   constructor(config: MemoryManagerConfig = {}) {
     const tracesDir = config.tracesDir ?? DEFAULT_TRACES_DIR;
     const strategiesDir = config.strategiesDir ?? DEFAULT_STRATEGIES_DIR;
 
-    super({
-      tracesDir,
-      strategiesDir,
-      strategyStoreConfig: {
-        strategiesDir,
-        levelDirs: {
-          [HierarchyLevel.STRATEGY]: 'level_2_routes',
-          [HierarchyLevel.REACTIVE]: 'level_4_motor',
-        },
-      },
-    });
+    super({ tracesDir, strategiesDir });
 
     this.systemDir = config.systemDir ?? DEFAULT_SYSTEM_DIR;
     this.skillsDir = config.skillsDir ?? DEFAULT_SKILLS_DIR;
+    this.strategyStore = new StrategyStore(strategiesDir);
 
     // Register RoClaw-specific sections
     this.registerSection({
@@ -101,6 +93,27 @@ export class MemoryManager extends CoreMemoryManager {
   }
 
   /**
+   * Get strategies for a given hierarchy level.
+   */
+  getStrategiesForLevel(level: HierarchyLevel): Strategy[] {
+    return this.strategyStore.getStrategiesForLevel(level);
+  }
+
+  /**
+   * Find strategies matching a goal at a given level.
+   */
+  findRelevantStrategies(goal: string, level: HierarchyLevel): Strategy[] {
+    return this.strategyStore.findStrategies(goal, level);
+  }
+
+  /**
+   * Get negative constraints from the strategy store.
+   */
+  getNegativeConstraints(context?: string): NegativeConstraint[] {
+    return this.strategyStore.getNegativeConstraints(context);
+  }
+
+  /**
    * Clear the cache (e.g., after files change on disk).
    */
   refreshCache(): void {
@@ -130,17 +143,17 @@ export class MemoryManager extends CoreMemoryManager {
     }
 
     // Read hierarchical strategies if available
-    const store = this.getStrategyStore();
-    if (store.isAvailable()) {
+    if (this.strategyStore.isAvailable()) {
       for (const level of [
         HierarchyLevel.GOAL,
         HierarchyLevel.STRATEGY,
         HierarchyLevel.TACTICAL,
         HierarchyLevel.REACTIVE,
       ]) {
-        const summary = store.getSummaryForLevel(level);
-        if (summary) {
+        const strategies = this.strategyStore.getStrategiesForLevel(level);
+        if (strategies.length > 0) {
           const levelName = HierarchyLevel[level];
+          const summary = strategies.map(s => `- **${s.title}** (confidence: ${s.confidence})`).join('\n');
           parts.push(`### Level ${level} — ${levelName} Strategies\n${summary}`);
         }
       }

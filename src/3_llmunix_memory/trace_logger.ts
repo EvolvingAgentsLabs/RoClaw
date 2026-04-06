@@ -2,8 +2,8 @@
  * RoClaw Trace Logger — Records physical experiences to markdown
  *
  * Standalone implementation (previously extended core HierarchicalTraceLogger).
- * Local file logging for real-time robot traces. Use MemoryClient.ingestTrace()
- * to send traces to evolving-memory for dream consolidation.
+ * Local file logging for real-time robot traces. Dream consolidation reads
+ * these trace files via skillos agents.
  */
 
 import * as fs from 'fs';

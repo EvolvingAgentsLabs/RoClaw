@@ -9,9 +9,7 @@
     "sim": "tsx src/virtual_roclaw.ts",
     "test": "jest --no-coverage",
     "type-check": "tsc --noEmit",
-    "dream": "tsx scripts/dream.ts",
     "dream:v1": "tsx scripts/dream_v1.ts",
-    "dream:sim": "tsx scripts/dream_sim.ts",
     "sim:3d": "tsx src/mjswan_bridge.ts",
     "hardware:test": "tsx scripts/hardware_test.ts",
     "ab:test": "tsx scripts/ab_test_real.ts"

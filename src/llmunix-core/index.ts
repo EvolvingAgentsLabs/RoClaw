@@ -2,8 +2,8 @@
  * LLMunix Core — Barrel export
  *
  * Generic hierarchical cognitive architecture with zero domain dependencies.
- * Dream engine, strategy store, and trace logger are now provided by
- * the evolving-memory server via MemoryClient.
+ * Traces are written as local .md files; dream consolidation is handled
+ * by skillos agents reading trace files directly.
  */
 
 // Types
@@ -30,17 +30,8 @@ export {
 // Utils
 export { extractJSON, parseJSONSafe } from './utils';
 
-// Memory Manager (still local — manages context assembly)
+// Memory Manager (local — manages context assembly from .md files)
 export {
   CoreMemoryManager,
   type CoreMemoryManagerConfig,
 } from './memory_manager';
-
-// Memory Client (replaces DreamEngine, StrategyStore, TraceLogger)
-export {
-  MemoryClient,
-  type IngestTraceRequest,
-  type DreamResult,
-  type QueryResult,
-  type StatsResponse,
-} from './memory_client';
