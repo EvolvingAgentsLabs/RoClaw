@@ -256,6 +256,50 @@ export class ReflexGuard extends EventEmitter {
 }
 
 // =============================================================================
+// attachReflexGuard — wrap a transmitter.send call site
+// =============================================================================
+
+/**
+ * Minimal contract the guard needs from a transmitter — implemented by
+ * UDPTransmitter and easily mock-able. We intentionally type structurally
+ * so callers can pass mock or alternative transports without coupling.
+ */
+export interface SendableTransmitter {
+  send(frame: Buffer): Promise<void>;
+}
+
+/**
+ * Monkey-patch a transmitter so every `transmitter.send(frame)` call is
+ * funneled through the guard. Returns a `detach()` function that restores
+ * the original send method.
+ *
+ * In 'shadow' mode this is observationally identical to the unguarded
+ * transmitter (the original frame is always sent); the guard only logs.
+ * In 'active' mode, would-collide frames are replaced with STOP before
+ * leaving the wire.
+ *
+ * Use this once at boot, after `transmitter.connect()`.
+ */
+export function attachReflexGuard(
+  transmitter: SendableTransmitter,
+  guard: ReflexGuard,
+): () => void {
+  // Preserve the exact original method reference so detach() is fully reversible
+  // (including identity comparisons). We bind internally for correct `this`,
+  // without mutating the stored reference.
+  const original = transmitter.send;
+  const boundOriginal = original.bind(transmitter);
+  transmitter.send = async (frame: Buffer): Promise<void> => {
+    const decision = guard.decide(frame);
+    const toSend = decision.allow ? frame : (decision.replacement ?? frame);
+    await boundOriginal(toSend);
+  };
+  return () => {
+    transmitter.send = original;
+  };
+}
+
+// =============================================================================
 // Free helpers
 // =============================================================================
 

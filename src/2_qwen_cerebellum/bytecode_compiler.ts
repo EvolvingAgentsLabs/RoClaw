@@ -321,6 +321,18 @@ export class BytecodeCompiler {
     return TEXT_SCENE_SYSTEM_PROMPT.replace('{{GOAL}}', goal);
   }
 
+  /**
+   * Get the system prompt for the overhead-camera Scene-Graph perception
+   * mode. The VLM acts as a pure spatial perceiver: it identifies objects
+   * with `box_2d` coordinates and lets the local ReactiveController decide
+   * the motor command from arena math.
+   *
+   * Use with PERCEPTION_MODE='scene-graph' (or equivalent flag wiring).
+   */
+  getOverheadScenePrompt(goal: string): string {
+    return OVERHEAD_SCENE_PROMPT.replace('{{GOAL}}', goal);
+  }
+
   getStats(): CompilerStats {
     return { ...this.stats };
   }
@@ -635,6 +647,50 @@ export function decodeFrameAuto(buffer: Buffer): BytecodeFrameV2 | null {
 export const BYTECODE_GBNF_GRAMMAR = `root ::= hex-byte " " hex-byte " " hex-byte " " hex-byte " " hex-byte " " hex-byte
 hex-byte ::= hex-digit hex-digit
 hex-digit ::= [0-9A-Fa-f]`;
+
+// =============================================================================
+// Overhead Scene-Graph System Prompt (Gemini Robotics-ER 1.6, V1 perception)
+// =============================================================================
+//
+// Used when the V1 hardware (overhead phone-on-tripod camera, mirrored by
+// sim/roclaw_robot.xml `external_cam`) feeds the SceneGraph pipeline. The
+// VLM does pure perception — it identifies objects and grounds them with
+// normalized 2D bounding boxes — and the motor command is decided locally
+// by ReactiveController from the resulting SceneGraph. This eliminates the
+// "Flash-Lite ignored CLEARANCE numbers" failure mode documented in
+// docs/linkedin-dream-distillation-article.md.
+
+const OVERHEAD_SCENE_PROMPT = `You are the spatial perception engine for the RoClaw robot.
+You are viewing the arena from an OVERHEAD, bird's-eye camera (looking straight down).
+
+GOAL: {{GOAL}}
+
+Your job is to ground every relevant object in the image with a 2D bounding box.
+You do NOT issue motor commands — a downstream local controller does that
+from the coordinates you return.
+
+Identify and report:
+  - The robot itself (label "roclaw"), with a heading_estimate hint.
+  - The target object referenced by the goal.
+  - Any obstacle that occupies the floor (walls, boxes, furniture).
+
+Output ONLY valid JSON, no markdown fences, in this exact shape:
+{
+  "objects": [
+    {
+      "label": "roclaw",
+      "box_2d": [ymin, xmin, ymax, xmax],
+      "heading_estimate": "UP" | "DOWN" | "LEFT" | "RIGHT"
+    },
+    {
+      "label": "red cube",
+      "box_2d": [ymin, xmin, ymax, xmax]
+    }
+  ]
+}
+
+box_2d coordinates MUST be normalized to the 0-1000 range. Image origin is
+top-left; xmin < xmax and ymin < ymax. Omit objects you cannot see.`;
 
 // =============================================================================
 // Text-Scene System Prompt (for text-based dream simulation — no video/images)

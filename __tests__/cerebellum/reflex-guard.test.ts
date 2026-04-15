@@ -1,4 +1,9 @@
-import { ReflexGuard, type ReflexMode } from '../../src/2_qwen_cerebellum/reflex_guard';
+import {
+  ReflexGuard,
+  attachReflexGuard,
+  type ReflexMode,
+  type SendableTransmitter,
+} from '../../src/2_qwen_cerebellum/reflex_guard';
 import { SceneGraph } from '../../src/3_llmunix_memory/scene_graph';
 import { encodeFrame, Opcode, FRAME_SIZE } from '../../src/2_qwen_cerebellum/bytecode_compiler';
 
@@ -297,6 +302,84 @@ describe('ReflexGuard — guardedSend()', () => {
 // =============================================================================
 // Stats
 // =============================================================================
+
+// =============================================================================
+// attachReflexGuard — monkey-patched transmitter
+// =============================================================================
+
+describe('attachReflexGuard()', () => {
+  function makeTx(): { tx: SendableTransmitter; sent: Buffer[] } {
+    const sent: Buffer[] = [];
+    const tx: SendableTransmitter = {
+      send: async (b: Buffer) => { sent.push(b); },
+    };
+    return { tx, sent };
+  }
+
+  test('intercepts send() so every frame passes through decide()', async () => {
+    const { tx, sent } = makeTx();
+    const guard = new ReflexGuard(graphClear(), { mode: 'shadow' });
+    attachReflexGuard(tx, guard);
+
+    await tx.send(moveForward());
+    await tx.send(stop());
+
+    const stats = guard.getStats();
+    expect(stats.decisions).toBe(2);
+    expect(sent).toHaveLength(2);
+  });
+
+  test('active mode replaces would-collide frames with STOP on the wire', async () => {
+    const { tx, sent } = makeTx();
+    const guard = new ReflexGuard(graphWithObstacleAhead(20), { mode: 'active', ...LONG_WINDOW });
+    attachReflexGuard(tx, guard);
+
+    const original = moveForward(255);
+    await tx.send(original);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).not.toBe(original);
+    expect(sent[0][1]).toBe(Opcode.STOP);
+  });
+
+  test('shadow mode sends the original frame verbatim', async () => {
+    const { tx, sent } = makeTx();
+    const guard = new ReflexGuard(graphWithObstacleAhead(20), { mode: 'shadow', ...LONG_WINDOW });
+    attachReflexGuard(tx, guard);
+
+    const original = moveForward(255);
+    await tx.send(original);
+    expect(sent[0]).toBe(original);
+    expect(guard.getStats().shadowVetoes).toBe(1);
+  });
+
+  test('detach() restores the original send method', async () => {
+    const { tx, sent } = makeTx();
+    const guard = new ReflexGuard(graphWithObstacleAhead(20), { mode: 'active', ...LONG_WINDOW });
+    const originalSend = tx.send;
+    const detach = attachReflexGuard(tx, guard);
+
+    expect(tx.send).not.toBe(originalSend);
+    detach();
+    expect(tx.send).toBe(originalSend);
+
+    // After detach the guard no longer intercepts.
+    await tx.send(moveForward(255));
+    expect(guard.getStats().decisions).toBe(0);
+    expect(sent).toHaveLength(1);
+  });
+
+  test('propagates underlying transmitter errors', async () => {
+    const tx: SendableTransmitter = {
+      send: async () => { throw new Error('network down'); },
+    };
+    const guard = new ReflexGuard(graphClear(), { mode: 'shadow' });
+    attachReflexGuard(tx, guard);
+
+    await expect(tx.send(moveForward())).rejects.toThrow(/network down/);
+    expect(guard.getStats().decisions).toBe(1);
+  });
+});
 
 describe('ReflexGuard — getStats()', () => {
   test('counts decisions, vetoes, allowed', () => {
