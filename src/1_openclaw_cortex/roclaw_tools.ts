@@ -71,13 +71,14 @@ function ensureMapInfer(): InferenceFunction {
     const googleApiKey = process.env.GOOGLE_API_KEY;
     if (googleApiKey) {
       // Use Gemini for scene analysis (no tool calling — text analysis only)
+      const sceneThinkingBudget = parseInt(process.env.GEMINI_SCENE_THINKING_BUDGET || '1024', 10);
       const gemini = new GeminiRoboticsInference({
         apiKey: googleApiKey,
-        model: process.env.GEMINI_MODEL || 'gemini-robotics-er-1.5-preview',
+        model: process.env.GEMINI_MODEL || 'gemini-robotics-er-1.6-preview',
         maxOutputTokens: 1024,
         timeoutMs: 30000,
         temperature: 0.3,
-        thinkingBudget: 0,
+        thinkingBudget: sceneThinkingBudget,
         useToolCalling: false,
       });
       mapInferenceFunc = gemini.createInferenceFunction();
@@ -285,7 +286,7 @@ export async function handleTool(
 // ---------------------------------------------------------------------------
 
 async function handleStepRetry(session: NavigationSession, reason: string): Promise<void> {
-  const MAX_RETRIES = 2;
+  const MAX_RETRIES = 3;
   if (session.retryCount >= MAX_RETRIES) {
     abortActiveSession(TraceOutcome.FAILURE, `${reason} after ${MAX_RETRIES} retries`);
     return;
@@ -296,6 +297,9 @@ async function handleStepRetry(session: NavigationSession, reason: string): Prom
   if (session.currentStepTraceId) {
     traceLogger.endTrace(session.currentStepTraceId, TraceOutcome.PARTIAL, reason);
   }
+
+  // Clear stale constraints to prevent feedback loops
+  session.ctx.visionLoop.setConstraints([]);
 
   // Re-plan the current step with fresh scene context
   const step = session.plan.steps[session.currentStepIndex];
@@ -312,9 +316,20 @@ async function handleStepRetry(session: NavigationSession, reason: string): Prom
     }
     const tactical = await hp.planStrategicStep(step, scene, session.plan.traceId);
     session.currentStepTraceId = tactical.traceId;
-    const goal = tactical.constraints.length > 0
-      ? `${tactical.tacticalGoal}\nConstraints: ${tactical.constraints.join('; ')}`
-      : tactical.tacticalGoal;
+
+    // Filter out constraints that prevent forward movement — these cause rotation loops
+    const blockedPhrases = ['do not move forward', 'maintain current position', 'do not advance'];
+    const safeConstraints = tactical.constraints.filter(
+      c => !blockedPhrases.some(bp => c.toLowerCase().includes(bp))
+    );
+
+    // On retry, inject a "break out" directive to force a different action class
+    const breakoutHint = session.retryCount <= 1
+      ? 'You were stuck rotating. Move FORWARD to change position, then re-orient toward the target.'
+      : 'You are still stuck. Try moving FORWARD or turning in the OPPOSITE direction to break the pattern.';
+    safeConstraints.unshift(breakoutHint);
+
+    const goal = `${tactical.tacticalGoal}\nConstraints: ${safeConstraints.join('; ')}`;
     session.ctx.visionLoop.setGoal(goal);
     session.ctx.visionLoop.resetStepTimer();
   } catch (err) {

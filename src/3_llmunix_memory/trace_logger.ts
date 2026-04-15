@@ -1,9 +1,10 @@
 /**
  * RoClaw Trace Logger — Records physical experiences to markdown
  *
- * Standalone implementation (previously extended core HierarchicalTraceLogger).
- * Local file logging for real-time robot traces. Dream consolidation reads
- * these trace files via skillos agents.
+ * Extends the core HierarchicalTraceLogger with RoClaw-specific formatting:
+ * - Uses "VLM Reasoning" and "Compiled Bytecode" field names
+ * - Supports appendBytecode() for Buffer-based bytecode logging
+ * - Legacy v1 format support via appendTraceLegacy()
  */
 
 import * as fs from 'fs';
@@ -17,21 +18,16 @@ import {
   type HierarchicalTraceEntry,
   type ActionEntry,
 } from '../llmunix-core/types';
+import {
+  HierarchicalTraceLogger as CoreTraceLogger,
+  type StartTraceOptions,
+} from '../llmunix-core/trace_logger';
 import { type BytecodeEntry, actionToBytecode } from './trace_types';
 
 const TRACES_DIR = path.join(__dirname, 'traces');
 
-// =============================================================================
-// Types
-// =============================================================================
-
-export interface StartTraceOptions {
-  parentTraceId?: string;
-  locationNode?: string;
-  sceneDescription?: string;
-  activeStrategyId?: string;
-  source?: TraceSource;
-}
+// Re-export StartTraceOptions for backward compat
+export type { StartTraceOptions } from '../llmunix-core/trace_logger';
 
 // =============================================================================
 // Legacy v1 API (backward-compatible)
@@ -62,7 +58,7 @@ export function appendTrace(goal: string, vlmOutput: string, bytecode: Buffer): 
 }
 
 // =============================================================================
-// RoClaw Hierarchical Trace Logger
+// RoClaw Hierarchical Trace Logger (extends core)
 // =============================================================================
 
 /** Extended entry type with backward-compatible bytecodeEntries */
@@ -70,18 +66,9 @@ export interface RoClawTraceEntry extends HierarchicalTraceEntry {
   bytecodeEntries: BytecodeEntry[];
 }
 
-function generateTraceId(): string {
-  const ts = Date.now().toString(36);
-  const rand = Math.random().toString(36).slice(2, 6);
-  return `tr_${ts}_${rand}`;
-}
-
-export class HierarchicalTraceLogger {
-  protected tracesDir: string;
-  private activeTraces = new Map<string, HierarchicalTraceEntry>();
-
+export class HierarchicalTraceLogger extends CoreTraceLogger {
   constructor(tracesDir?: string) {
-    this.tracesDir = tracesDir ?? TRACES_DIR;
+    super(tracesDir ?? TRACES_DIR);
   }
 
   startTrace(
@@ -89,36 +76,9 @@ export class HierarchicalTraceLogger {
     goal: string,
     opts?: StartTraceOptions,
   ): string {
-    const traceId = generateTraceId();
-    const entry: HierarchicalTraceEntry = {
-      traceId,
-      hierarchyLevel: level,
-      parentTraceId: opts?.parentTraceId ?? null,
-      timestamp: new Date().toISOString(),
-      goal,
-      locationNode: opts?.locationNode ?? null,
-      sceneDescription: opts?.sceneDescription ?? null,
-      activeStrategyId: opts?.activeStrategyId ?? null,
-      source: opts?.source ?? TraceSource.REAL_WORLD,
-      outcome: TraceOutcome.UNKNOWN,
-      outcomeReason: null,
-      durationMs: null,
-      confidence: null,
-      actionEntries: [],
-    };
-    this.activeTraces.set(traceId, entry);
+    const traceId = super.startTrace(level, goal, opts);
     logger.debug('TraceLogger', `Started trace ${traceId} (L${level}): ${goal}`);
     return traceId;
-  }
-
-  appendAction(traceId: string, reasoning: string, actionPayload: string): void {
-    const entry = this.activeTraces.get(traceId);
-    if (!entry) return;
-    entry.actionEntries.push({
-      timestamp: new Date().toISOString(),
-      reasoning,
-      actionPayload,
-    });
   }
 
   appendBytecode(traceId: string, vlmOutput: string, bytecode: Buffer): void {
@@ -137,20 +97,9 @@ export class HierarchicalTraceLogger {
     reason?: string,
     confidence?: number,
   ): void {
-    const entry = this.activeTraces.get(traceId);
-    if (!entry) {
-      logger.warn('TraceLogger', `endTrace: unknown trace ${traceId}`);
-      return;
-    }
     logger.debug('TraceLogger', `Ending trace ${traceId}: ${outcome}`);
-    entry.outcome = outcome;
-    entry.outcomeReason = reason ?? null;
-    entry.confidence = confidence ?? null;
-    const startTime = new Date(entry.timestamp).getTime();
-    entry.durationMs = Date.now() - startTime;
-    this.activeTraces.delete(traceId);
-    this.writeTrace(entry);
-    logger.debug('TraceLogger', `Ended trace ${traceId}: ${outcome} (${entry.durationMs}ms)`);
+    super.endTrace(traceId, outcome, reason, confidence);
+    logger.debug('TraceLogger', `Ended trace ${traceId}: ${outcome}`);
   }
 
   getActiveTrace(traceId: string): RoClawTraceEntry | undefined {
@@ -162,16 +111,12 @@ export class HierarchicalTraceLogger {
     };
   }
 
-  getActiveTraceCount(): number {
-    return this.activeTraces.size;
-  }
-
   appendTraceLegacy(goal: string, vlmOutput: string, bytecode: Buffer): void {
     appendTrace(goal, vlmOutput, bytecode);
   }
 
   // ---------------------------------------------------------------------------
-  // Write trace to markdown file
+  // Override writeTrace for RoClaw-specific field names
   // ---------------------------------------------------------------------------
 
   protected writeTrace(entry: HierarchicalTraceEntry): void {

@@ -17,6 +17,10 @@ export interface TelemetryData {
   vel: { left: number; right: number };
   stall: boolean;
   ts: number;
+  /** Distance to goal target in meters */
+  targetDist?: number;
+  /** Bearing to target relative to robot heading, degrees (-180..180, positive = right) */
+  targetBearing?: number;
 }
 
 // =============================================================================
@@ -59,6 +63,8 @@ export class TelemetryMonitor extends EventEmitter {
       vel: parsed.vel,
       stall: parsed.stall,
       ts: parsed.ts,
+      targetDist: parsed.targetDist,
+      targetBearing: parsed.targetBearing,
     };
 
     this.lastTelemetry = data;

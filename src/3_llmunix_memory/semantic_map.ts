@@ -44,8 +44,10 @@ export interface SemanticMapEntry {
 export interface SpatialFeature {
   /** Object label (e.g., "red cube", "door") */
   label: string;
-  /** Bounding box in normalized 0-1000 coordinate system */
-  bbox: { x: number; y: number; w: number; h: number };
+  /** Bounding box in normalized 0-1000 coordinate system.
+   *  Object format: {x, y, w, h} (legacy)
+   *  Array format: [ymin, xmin, ymax, xmax] (Robotics-ER 1.6 native) */
+  bbox: { x: number; y: number; w: number; h: number } | [number, number, number, number];
   /** Center point computed from bbox */
   center: { x: number; y: number };
 }
@@ -139,7 +141,7 @@ Analyze the scene and identify:
 1. What type of location/room this is
 2. Key visual features that identify this location
 3. Visible exits, doors, or navigable paths
-4. Bounding boxes for key objects in normalized 0-1000 coordinate system
+4. Bounding boxes for key objects in normalized 0-1000 coordinate system as [ymin, xmin, ymax, xmax]
 
 Output ONLY valid JSON (no markdown, no explanation) in this format:
 {
@@ -149,8 +151,8 @@ Output ONLY valid JSON (no markdown, no explanation) in this format:
   "navigationHints": ["doorway to the left leads to hallway", "open passage ahead"],
   "confidence": 0.85,
   "spatialFeatures": [
-    {"label": "gas stove", "bbox": {"x": 400, "y": 300, "w": 200, "h": 150}},
-    {"label": "doorway", "bbox": {"x": 50, "y": 200, "w": 100, "h": 400}}
+    {"label": "gas stove", "bbox": [300, 400, 450, 600]},
+    {"label": "doorway", "bbox": [200, 50, 600, 150]}
   ]
 }`;
 
@@ -399,19 +401,28 @@ export class SemanticMap {
       images,
     );
 
-    const analysis = parseJSONSafe<SceneAnalysis & { spatialFeatures?: Array<{ label: string; bbox: { x: number; y: number; w: number; h: number } }> }>(response);
+    const analysis = parseJSONSafe<SceneAnalysis & { spatialFeatures?: Array<{ label: string; bbox: { x: number; y: number; w: number; h: number } | [number, number, number, number] }> }>(response);
     if (!analysis) return null;
 
-    // Compute center points for spatial features
+    // Compute center points for spatial features (supports both bbox formats)
     if (analysis.spatialFeatures) {
-      analysis.spatialFeatures = analysis.spatialFeatures.map(sf => ({
-        label: sf.label,
-        bbox: sf.bbox,
-        center: {
-          x: sf.bbox.x + sf.bbox.w / 2,
-          y: sf.bbox.y + sf.bbox.h / 2,
-        },
-      }));
+      analysis.spatialFeatures = analysis.spatialFeatures.map(sf => {
+        if (Array.isArray(sf.bbox)) {
+          // Robotics-ER 1.6 array format: [ymin, xmin, ymax, xmax]
+          const [ymin, xmin, ymax, xmax] = sf.bbox;
+          return {
+            label: sf.label,
+            bbox: sf.bbox,
+            center: { x: (xmin + xmax) / 2, y: (ymin + ymax) / 2 },
+          };
+        }
+        // Legacy object format: {x, y, w, h}
+        return {
+          label: sf.label,
+          bbox: sf.bbox,
+          center: { x: sf.bbox.x + sf.bbox.w / 2, y: sf.bbox.y + sf.bbox.h / 2 },
+        };
+      });
     }
 
     return analysis;
@@ -563,10 +574,13 @@ export class SemanticMap {
     if (!match) return null;
 
     const cx = match.center.x;
-    // In 0-1000 coordinate system: <333 = left, >666 = right, else center
-    if (cx < 333) return `[SPATIAL] "${match.label}" is to the LEFT (x=${cx})`;
-    if (cx > 666) return `[SPATIAL] "${match.label}" is to the RIGHT (x=${cx})`;
-    return `[SPATIAL] "${match.label}" is CENTERED (x=${cx})`;
+    // 5-bucket proportional output with estimated turn angle
+    const turnAngle = Math.round((500 - cx) / 10);
+    if (cx < 400) return `[SPATIAL] "${match.label}" is FAR LEFT (x=${cx}), turn ~${turnAngle}deg left`;
+    if (cx < 480) return `[SPATIAL] "${match.label}" is SLIGHTLY LEFT (x=${cx}), turn ~${turnAngle}deg left`;
+    if (cx <= 520) return `[SPATIAL] "${match.label}" is CENTERED (x=${cx})`;
+    if (cx <= 600) return `[SPATIAL] "${match.label}" is SLIGHTLY RIGHT (x=${cx}), turn ~${Math.abs(turnAngle)}deg right`;
+    return `[SPATIAL] "${match.label}" is FAR RIGHT (x=${cx}), turn ~${Math.abs(turnAngle)}deg right`;
   }
 
   /**

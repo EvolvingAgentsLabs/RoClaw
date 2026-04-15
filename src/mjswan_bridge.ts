@@ -82,6 +82,10 @@ export interface TelemetryMessage {
   vel: { left: number; right: number };
   stall: boolean;
   ts: number;
+  /** Distance to goal target in meters (if known) */
+  targetDist?: number;
+  /** Bearing to goal target relative to robot heading, in degrees (-180..180, positive = right) */
+  targetBearing?: number;
 }
 
 /** WebSocket message: bridge -> browser */
@@ -522,6 +526,7 @@ export function startTelemetryBroadcast(
   socket: dgram.Socket,
   state: BridgeState,
   config: BridgeConfig,
+  target?: GoalTarget,
 ): ReturnType<typeof setInterval> {
   return setInterval(() => {
     if (!state.lastClientRinfo) return;
@@ -556,6 +561,21 @@ export function startTelemetryBroadcast(
       stall: state.stall,
       ts: Date.now(),
     };
+
+    // Add target bearing + distance if target is known
+    if (target) {
+      telemetry.targetDist = Math.round(state.targetDistance * 1000) / 1000;
+      // Absolute bearing to target using atan2(dy, dx) — 0 = +X axis, matches MuJoCo yaw convention
+      const tdx = target.x - state.pose.x;
+      const tdy = target.y - state.pose.y;
+      const absBearing = Math.atan2(tdy, tdx); // radians, 0 = +X axis (robot forward at heading=0)
+      // Relative bearing = absBearing - heading, normalized to -PI..PI
+      // Positive = target is counter-clockwise (LEFT), negative = clockwise (RIGHT)
+      let relBearing = absBearing - state.pose.h;
+      while (relBearing > Math.PI) relBearing -= 2 * Math.PI;
+      while (relBearing < -Math.PI) relBearing += 2 * Math.PI;
+      telemetry.targetBearing = Math.round(relBearing * 180 / Math.PI * 10) / 10; // degrees
+    }
 
     const buf = Buffer.from(JSON.stringify(telemetry));
     socket.send(buf, state.lastClientRinfo.port, state.lastClientRinfo.address);
@@ -640,7 +660,7 @@ async function main(): Promise<void> {
   const camServer = startCameraServer(config, latestJpeg);
 
   // Telemetry broadcast: push pose + stall status to last known UDP client every 500ms
-  const telemetryInterval = startTelemetryBroadcast(udpSocket, state, config);
+  const telemetryInterval = startTelemetryBroadcast(udpSocket, state, config, target);
 
   // Banner
   if (config.verbose) {

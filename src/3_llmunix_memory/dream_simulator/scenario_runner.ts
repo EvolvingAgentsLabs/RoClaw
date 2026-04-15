@@ -96,7 +96,7 @@ export class DreamScenarioRunner {
 
   constructor(config: RunnerConfig) {
     this.config = config;
-    this.stuckThreshold = config.stuckThreshold ?? 6;
+    this.stuckThreshold = config.stuckThreshold ?? 8;
     this.maxStuckRetries = config.maxStuckRetries ?? 3;
     this.stuckProgressThresholdCm = config.stuckProgressThresholdCm ?? 2.0;
 
