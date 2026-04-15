@@ -384,7 +384,7 @@ async function runScenario(
       consecutiveIdentical = 0;
     }
     lastOpcode = opcode;
-    if (consecutiveIdentical >= 6) {
+    if (consecutiveIdentical >= 8) {
       // Check spatial progress before declaring stuck
       const currentPose = currentFrame.pose;
       const dx = currentPose.x - stuckCheckPose.x;

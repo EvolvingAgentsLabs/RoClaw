@@ -172,11 +172,12 @@ describe('GeminiRoboticsInference', () => {
   // ===========================================================================
 
   describe('thinking budget', () => {
-    test('thinkingBudget=0 does not send thinkingConfig', async () => {
+    test('thinkingBudget=0 on lite model does not send thinkingConfig', async () => {
       global.fetch = mockFetchResponse(geminiTextResponse('ok'));
 
       const adapter = new GeminiRoboticsInference({
         apiKey: 'test-key',
+        model: 'gemini-3.1-flash-lite-preview',
         thinkingBudget: 0,
       });
       await adapter.infer('System', 'Fast');
@@ -184,6 +185,23 @@ describe('GeminiRoboticsInference', () => {
       const call = (global.fetch as jest.Mock).mock.calls[0];
       const body = JSON.parse(call[1].body);
       expect(body.generationConfig.thinkingConfig).toBeUndefined();
+    });
+
+    test('thinkingBudget=0 on non-lite model sends thinkingConfig with budget 0', async () => {
+      global.fetch = mockFetchResponse(geminiTextResponse('ok'));
+
+      const adapter = new GeminiRoboticsInference({
+        apiKey: 'test-key',
+        model: 'gemini-robotics-er-1.6-preview',
+        thinkingBudget: 0,
+      });
+      await adapter.infer('System', 'Fast');
+
+      const call = (global.fetch as jest.Mock).mock.calls[0];
+      const body = JSON.parse(call[1].body);
+      expect(body.generationConfig.thinkingConfig).toEqual({
+        thinkingBudget: 0,
+      });
     });
 
     test('thinkingBudget>0 includes thinkingConfig', async () => {
@@ -414,7 +432,7 @@ describe('GeminiRoboticsInference', () => {
 
       const call = (global.fetch as jest.Mock).mock.calls[0];
       const url = call[0] as string;
-      expect(url).toContain('/models/gemini-3-flash-preview:generateContent');
+      expect(url).toContain('/models/gemini-3-flash-preview:streamGenerateContent');
       expect(url).toContain('key=my-api-key');
     });
 

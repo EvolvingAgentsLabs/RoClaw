@@ -719,6 +719,42 @@ describe('Synthetic E2E — Spatial Feature Integration', () => {
     map2.loadFromJSON(exported);
     expect(map2.getNode('loc_0')!.spatialFeatures).toBeUndefined();
   });
+
+  test('C21: getSpatialNavigationHint works with array bbox format [ymin,xmin,ymax,xmax]', () => {
+    const mockInfer = createMockInference();
+    const map = new SemanticMap(mockInfer);
+
+    // Array format: [ymin, xmin, ymax, xmax] — center x = (xmin+xmax)/2 = (100+300)/2 = 200
+    const features: SpatialFeature[] = [
+      { label: 'red cube', bbox: [50, 100, 250, 300], center: { x: 200, y: 150 } },
+    ];
+
+    const hint = map.getSpatialNavigationHint('red cube', features);
+    expect(hint).not.toBeNull();
+    expect(hint).toContain('FAR LEFT');
+    expect(hint).toContain('x=200');
+    expect(hint).toContain('turn');
+    expect(hint).toContain('left');
+  });
+
+  test('C22: getSpatialNavigationHint proportional 5-bucket classification', () => {
+    const mockInfer = createMockInference();
+    const map = new SemanticMap(mockInfer);
+
+    // Test SLIGHTLY LEFT (400-480): center x = 450
+    const slightlyLeft: SpatialFeature[] = [
+      { label: 'door', bbox: { x: 400, y: 100, w: 100, h: 200 }, center: { x: 450, y: 200 } },
+    ];
+    const hintSL = map.getSpatialNavigationHint('door', slightlyLeft);
+    expect(hintSL).toContain('SLIGHTLY LEFT');
+
+    // Test SLIGHTLY RIGHT (520-600): center x = 550
+    const slightlyRight: SpatialFeature[] = [
+      { label: 'chair', bbox: { x: 500, y: 100, w: 100, h: 200 }, center: { x: 550, y: 200 } },
+    ];
+    const hintSR = map.getSpatialNavigationHint('chair', slightlyRight);
+    expect(hintSR).toContain('SLIGHTLY RIGHT');
+  });
 });
 
 // =============================================================================

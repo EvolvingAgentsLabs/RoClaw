@@ -345,8 +345,8 @@ describe('VisionLoop', () => {
     const stuckHandler = jest.fn();
     visionLoop.on('stuck', stuckHandler);
 
-    // Process 8 frames with identical FORWARD command (STUCK_WINDOW = 8)
-    for (let i = 0; i < 8; i++) {
+    // Process 12 frames with identical FORWARD command (STUCK_WINDOW = 12)
+    for (let i = 0; i < 12; i++) {
       await visionLoop.processSingleFrame('base64imagedata');
     }
 

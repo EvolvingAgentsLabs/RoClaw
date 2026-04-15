@@ -35,3 +35,27 @@ export {
   CoreMemoryManager,
   type CoreMemoryManagerConfig,
 } from './memory_manager';
+
+// Trace Logger (generic — domain subclasses override writeTrace)
+export {
+  HierarchicalTraceLogger,
+  type StartTraceOptions,
+} from './trace_logger';
+
+// Strategy Store (generic defaults — domain subclasses override level dirs)
+export {
+  StrategyStore,
+  type StrategyStoreConfig,
+  strategyFromMarkdown,
+  strategyToMarkdown,
+  parseNegativeConstraints,
+} from './strategy_store';
+
+// Dream Engine (generic — uses DreamDomainAdapter for domain-specific behavior)
+export {
+  DreamEngine,
+  type ParsedTrace,
+  type TraceSequence,
+  type DreamResult,
+  type DreamEngineConfig,
+} from './dream_engine';

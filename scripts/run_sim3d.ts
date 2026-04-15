@@ -239,6 +239,17 @@ async function main(): Promise<void> {
     telemetryMonitor.processMessage(msg);
   });
 
+  // 5a. Wire telemetry into VisionLoop for pose-aware VLM prompts
+  visionLoop.setTelemetryProvider(() => {
+    const data = telemetryMonitor.getLastTelemetry();
+    if (!data) return null;
+    return {
+      pose: data.pose,
+      targetDist: data.targetDist,
+      targetBearing: data.targetBearing,
+    };
+  });
+
   // 5b. Trace collector — captures camera-based traces as local .md files
   let traceCollector: Sim3DTraceCollector | null = null;
   if (collectTraces) {

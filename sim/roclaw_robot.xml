@@ -39,7 +39,16 @@
     <material name="red_cube_mat" rgba="1.0 0.0 0.0 1"/>
   </asset>
 
+  <!-- Overhead area light so the external_cam (bird's-eye) gets illumination -->
+  <visual>
+    <headlight ambient="0.3 0.3 0.3" diffuse="0.5 0.5 0.5"/>
+  </visual>
+
   <worldbody>
+    <!-- Overhead directional light (illuminates scene for all cameras) -->
+    <light name="overhead" pos="0 0 1.5" dir="0 0 -1"
+           diffuse="0.8 0.8 0.8" specular="0.2 0.2 0.2" directional="true"/>
+
     <!-- Ground plane -->
     <geom name="floor" type="plane" size="2 2 0.01" material="grid_mat"/>
 
@@ -67,7 +76,7 @@
 
     <!-- External overhead camera (matches V1 Android phone on tripod) -->
     <!-- Positioned 0.8m above arena center, looking straight down -->
-    <camera name="external_cam" pos="0 0 0.8" xyaxes="1 0 0 0 -1 0"
+    <camera name="external_cam" pos="0 0 0.8" xyaxes="1 0 0 0 1 0"
             fovy="90" resolution="640 480"/>
 
     <!-- ============== RoClaw Robot ============== -->

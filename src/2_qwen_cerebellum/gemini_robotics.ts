@@ -57,7 +57,7 @@ export interface GeminiToolDeclaration {
 
 const DEFAULT_CONFIG: GeminiInferenceConfig = {
   apiKey: '',
-  model: 'gemini-robotics-er-1.5-preview',
+  model: 'gemini-robotics-er-1.6-preview',
   maxOutputTokens: 1024,
   temperature: 0.1,
   timeoutMs: 10000,
@@ -476,13 +476,23 @@ export class GeminiRoboticsInference {
     }
 
     if (this.config.useToolCalling && this.config.tools.length > 0) {
-      body.tools = [{
+      const toolsArray: Record<string, unknown>[] = [{
         functionDeclarations: this.config.tools.map(t => ({
           name: t.name,
           description: t.description,
           parameters: t.parameters,
         })),
       }];
+
+      // Robotics-ER models support native code execution for distance computation,
+      // image cropping, and instrument reading
+      if (this.config.model.includes('robotics-er')) {
+        toolsArray.push({ codeExecution: {} });
+        // Required when mixing built-in tools (codeExecution) with function declarations
+        body.toolConfig = { includeServerSideToolInvocations: true };
+      }
+
+      body.tools = toolsArray;
     }
 
     return body;
