@@ -204,13 +204,16 @@ export class SceneNode {
    * Return a *forward-extended* AABB: the swept volume produced by translating
    * this node's footprint along its current heading by `distanceCm`.
    *
+   * Sign convention: positive = sweep along the heading direction,
+   * negative = sweep against it (backward). Zero returns the static AABB.
+   *
    * Intended for the robot node — the reflex loop calls this to ask
-   * "if I move forward this far, will I hit anything?" without needing a
-   * physics integrator.
+   * "if I move this far in this direction, will I hit anything?" without
+   * needing a physics integrator.
    */
   getForwardSweptAABB(distanceCm: number): AABB {
     const current = this.getWorldAABB();
-    if (distanceCm <= 0) return current;
+    if (distanceCm === 0) return current;
 
     const headingRad = (this.getHeadingDegrees() * Math.PI) / 180;
     const dx = Math.cos(headingRad) * distanceCm;

@@ -131,10 +131,19 @@ describe('SceneNode — forward-swept AABB', () => {
     expect(swept.max[1]).toBeCloseTo(55, 3);
   });
 
-  test('negative distance is treated as no sweep', () => {
+  test('negative distance sweeps against the heading (backward)', () => {
+    const n = new SceneNode('a', 'A', { boundingBox: { w: 10, h: 10, d: 10 } });
+    // Heading 0° → +X. Backward sweep of 50 extends min[0] to -55.
+    const swept = n.getForwardSweptAABB(-50);
+    expect(swept.min[0]).toBeCloseTo(-55, 4);
+    expect(swept.max[0]).toBeCloseTo(+5, 4); // unchanged on the +X side
+  });
+
+  test('zero distance returns the static AABB unchanged', () => {
     const n = new SceneNode('a', 'A', { boundingBox: { w: 10, h: 10, d: 10 } });
     const a = n.getWorldAABB();
-    const b = n.getForwardSweptAABB(-50);
+    const b = n.getForwardSweptAABB(0);
+    expect(b.min[0]).toBeCloseTo(a.min[0], 4);
     expect(b.max[0]).toBeCloseTo(a.max[0], 4);
   });
 });
