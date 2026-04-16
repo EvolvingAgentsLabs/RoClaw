@@ -593,4 +593,34 @@ describe('BytecodeCompiler', () => {
       expect(prompt).toContain('Move forward');
     });
   });
+
+  describe('getOverheadScenePrompt', () => {
+    test('substitutes the goal placeholder', () => {
+      const prompt = compiler.getOverheadScenePrompt('find the red cube');
+      expect(prompt).toContain('find the red cube');
+      expect(prompt).not.toContain('{{GOAL}}');
+    });
+
+    test('describes the overhead camera viewpoint', () => {
+      const prompt = compiler.getOverheadScenePrompt('test');
+      expect(prompt).toMatch(/OVERHEAD|bird.s-eye|bird's-eye/i);
+    });
+
+    test('requests box_2d output normalized to 0-1000', () => {
+      const prompt = compiler.getOverheadScenePrompt('test');
+      expect(prompt).toContain('box_2d');
+      expect(prompt).toContain('0-1000');
+    });
+
+    test('labels the robot as "roclaw" and asks for heading_estimate', () => {
+      const prompt = compiler.getOverheadScenePrompt('test');
+      expect(prompt).toContain('roclaw');
+      expect(prompt).toContain('heading_estimate');
+    });
+
+    test('tells the VLM NOT to issue motor commands', () => {
+      const prompt = compiler.getOverheadScenePrompt('test');
+      expect(prompt).toMatch(/do NOT issue motor commands|not.*motor commands/i);
+    });
+  });
 });

@@ -27,6 +27,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "dotenv": "^16.4.7",
+    "gl-matrix": "^3.4.4",
     "ws": "^8.18.0"
   },
   "devDependencies": {
