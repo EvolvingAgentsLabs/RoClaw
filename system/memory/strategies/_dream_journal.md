@@ -1,5 +1,142 @@
 # Dream Journal
 
+## 2026-04-26T23:00:00Z
+**Dream ID:** dream_20260426_exec_pruning_kernel_validation
+**Mode:** goal-focused (per-agent parallel)
+**Filter:** validation, reference integrity, dangling references, compilation check, test verification, portfolio execution
+- Traces processed: 1 (2026-04-26_execution_trace: CUT/DEVELOP portfolio operations)
+- Sequences analyzed: 1 (L2 portfolio execution with 2 sub-phases: CUT and DEVELOP)
+- Strategies created: 3 (all L3 tactical: multi-repo-validation-cascade, doc-debt-tracking-triage, validation-before-deletion-checklist)
+- Strategies updated: 0
+- Strategies deprecated: 0
+- Constraints learned: 4 (Constraints 33-36: validation scope, doc debt tracking, pre-deletion audits, deletion registry)
+- Traces pruned: 0 (goal-focused mode -- no pruning)
+
+This goal-focused dream session analyzed the portfolio execution trace from 2026-04-26, specifically the validation findings and remaining documentation debt. The execution achieved SUCCESS with all functional validation checks passing (Python syntax, Rust cargo check, grammar review, reference integrity for code). However, a post-execution audit identified 60+ dangling references in documentation (QWEN.md, README, test files, setup scripts) referencing deleted entities (agent_runtime.py, :8420 evolving-memory port, deleted system/agents/ directory, removed cooking cartridge). This revealed a gap in validation scope: reference integrity checking covered functional code paths but not documentation, examples, API reference docs, or configuration scripts.
+
+**Key Strategic Insight (from execution analysis)**: Validation must be conducted in phases: (1) functional validation catches code-to-code breaks, (2) documentation audit catches doc-to-code breaks. These phases must be SEQUENTIAL and INDEPENDENT. Running them together or skipping documentation audit leaves technical debt that compounds across releases. The portfolio execution successfully conducted Phase 1 but deferred Phase 2, resulting in merged-in dangling references that confuse users and developers.
+
+**Strategies Created**:
+
+1. **strat_3_multi-repo-validation-cascade** (L3 Tactical): A systematic validation cascade for coordinated multi-repo changes. Steps: (1) Pre-deletion audit via grep patterns, (2) Functional validation (syntax, tests, reference integrity), (3) Grammar/format validation, (4) Reference integrity for code, (5) Documentation audit for dangling references, (6) Final test execution. Key insight: functional validation and documentation audit must be SEPARATE phases. The cascade ensures changes don't break code (Phase 2) while also identifying documentation debt for later tracking (Phase 5). Confidence: 0.65 (validated on portfolio execution: functional passed, doc findings identified).
+
+2. **strat_3_doc-debt-tracking-triage** (L3 Tactical): After code deletion, documentation contains stale references. This strategy tracks debt systematically: categorize by type (command examples, tool API docs, script references, comments) and severity (critical breaks user workflows, high confuses developers, medium has workarounds, low is stale context). Critical/high fixes scheduled immediately, medium/low batched into tech debt sprints. Portfolio execution example: 7 README examples (HIGH), 5 QWEN.md tool refs (HIGH), 16 test comments (MEDIUM), setup script refs (HIGH). Confidence: 0.60 (strategy synthesized from post-execution analysis; now actionable for follow-up PR).
+
+3. **strat_3_validation-before-deletion-checklist** (L3 Tactical): A 5-phase checklist preventing post-deletion doc debt. (Phase 1) Pre-deletion audit: grep for all candidates before touching code. (Phase 2) Preparation: update functional code callers. (Phase 3) Deletion: execute removals in isolated commits. (Phase 4) Post-deletion audit: identify all dangling references in docs. (Phase 5) Validation complete: triage and schedule cleanup. This prevents the scenario on 2026-04-26 where deletions were validated functionally but documentation cleanup was deferred indefinitely, leaving dangling references merged into main. Confidence: 0.70 (strongest evidence: the execution trace itself shows where the process failed—Phase 4 post-deletion audit found 60+ items that pre-deletion audit would have caught earlier and documented completely).
+
+**New Negative Constraints (33-36)**:
+- Constraint 33: Reference integrity checking MUST cover documentation, not just code
+- Constraint 34: Implement doc debt tracking system with priority triage
+- Constraint 35: Always pre-audit before deletion; post-audit after deletion
+- Constraint 36: Maintain deleted_artifacts.md registry for pattern tracking
+
+**Why This Matters**: The portfolio's successful CUT/DEVELOP execution revealed a blind spot in the validation framework. Functional validation was rigorous (Rust cargo, Python compile, grammar, test suite all passed). But validation was CODE-scoped, not DOCUMENTATION-scoped. Dangling references remained because nobody checked the docs, examples, API reference, or setup scripts for stale entity references. These three strategies + four constraints establish documentation debt as a FIRST-CLASS quality metric equal to functional correctness. Future portfolio operations will conduct both functional AND documentation validation, scheduling cleanup by priority instead of deferring it.
+
+**Integration with Parallel Portfolio Dreams**: This dream complements concurrent execution analysis dreams (kernel_b2f8, pruning_a7e5) and strategic portfolio dreams (f7a2, a3f2, 3a8f). Those dreams focused on architecture convergence, priority sequencing, kernel implementation, and systematic pruning. This dream zooms into EXECUTION VALIDATION, answering the question: "When we execute multi-repo changes, how do we validate them safely?" The answer is three-fold: (1) separate functional and documentation validation, (2) conduct pre-deletion audit before any changes, (3) implement doc debt tracking instead of deferring cleanup.
+
+---
+
+## 2026-04-26T22:45:00Z
+**Dream ID:** dream_20260426_kernel_b2f8
+**Mode:** goal-focused
+**Filter:** grammar swap, ISA-aware compactor, state opcode, KV compaction, parser, trace pipeline, llm_os kernel development
+- Traces processed: 1 (tr_20260426_execution_trace_develop_operations from Project_portfolio_execution)
+- Sequences analyzed: 1 (L2 epic: ISA-aware KV compaction implementation)
+- Strategies created: 3 (L2×2, L3×1)
+- Strategies updated: 0
+- Strategies deprecated: 0
+- Constraints learned: 4 (Constraints 29-32)
+- Traces pruned: 0 (goal-focused mode -- no pruning)
+
+This goal-focused dream session consolidated the DEVELOP operations from the 2026-04-26 portfolio execution trace, specifically analyzing the §2 ISA-aware KV compactor implementation in llm_os v0.5. The session extracted three reusable strategies for the llm_os kernel development critical path: (1) **strat_2_isa_aware_state_serialization** (L2 Architecture): formalizes the pattern for extracting ISA state before KV cache compaction and injecting it as a JSON preamble for parser recovery. (2) **strat_2_opcode_addition_to_isa** (L2 Architecture): generalizes the <|state|> addition as a reusable 6-step pattern for future ISA extensions (grammar rule, parser variant, parse function, rehydration logic, test coverage, documentation). (3) **strat_3_cross_project_trace_ingestion** (L3 Tactical): standardizes the pattern for converting markdown-formatted traces to JSON-lined DPO training data via regex-based YAML parsing and schema normalization.
+
+**Key Finding (SWS Phase)**: The DEVELOP operations executed all code changes successfully (grammar, parser, compactor, trace pipeline) but **success criteria validation is incomplete**. NEXT_STEPS.md §2 requires "5000-token dispatch at depth 3 survives compaction without grammar rejects" — this integration test remains pending. The trace notes "Added 3 tests" (parse_state, stream_rehydrates_loop_depth, opcode_response_classification) but these are unit tests, not the full round-trip validation specified in success criteria. This leaves confidence at 0.75 (code working) rather than 0.90 (validated).
+
+**Critical Path Insight**: This dream session also revealed that §1 (grammar swap: 3 HTTP requests → 1 llama.cpp hook) is NOT YET IMPLEMENTED but is the #1 priority in the entire portfolio (NEXT_STEPS lines 34-37: "The 8 Hz Pi 5 budget"). According to NEXT_STEPS.md timeline, §1 requires 3 weeks (W1: prototype multi-grammar stack as llama.cpp patch, W2: teach iod to ship grammar-array, W3: bench 100 sequential calls on Pi 5 hardware). This is the critical blocker for reaching the kernel's theoretical performance ceiling.
+
+**Negative Constraints Extracted** (4 new):
+- Constraint 29: Extract ISA state before dropping KV cache tokens, or suffer silent grammar corruption
+- Constraint 30: Add new opcodes to BOTH top-stmt and loop-stmt in grammar, never just one level
+- Constraint 31: Don't defer integration tests after compaction implementation — success criteria must be validated immediately
+- Constraint 32: Standardize trace field names across projects before trace ingestion, or accept silent data loss via regex mismatches
+
+**Why This Matters**: The llm_os kernel represents the portfolio's deepest technical work. This dream session operationalizes the NEXT_STEPS roadmap by (a) formalizing §2 (ISA-aware compaction) as a reusable pattern, (b) documenting the opcode addition methodology for future extensions, and (c) connecting trace ingestion to the fine-tuning flywheel. By extracting these three strategies, future kernel development can reference validated patterns rather than re-deriving them. The four new constraints provide guardrails for the next 6 weeks of §1/§2/§3 work (grammar swap, compaction validation, recovery mechanisms).
+
+---
+
+## 2026-04-26T18:17:02Z
+**Dream ID:** dream_20260426_pruning_a7e5
+**Mode:** goal-focused
+**Filter:** pruning, dead code, file deletion, deprecated stubs, portfolio cleanup, CUT operations
+- Traces processed: 1 (tr_2026-04-26_portfolio_execution, L2 execution from Project_portfolio_execution)
+- Sequences analyzed: 1 (L2 epic: CUT+DEVELOP portfolio operations with 2 sub-phases)
+- Strategies created: 1 (L3×1: multi-repo-systematic-pruning)
+- Strategies updated: 0
+- Strategies deprecated: 0
+- Constraints learned: 4 (new: Constraints 29-32)
+- Traces pruned: 0 (goal-focused mode -- no pruning)
+
+This goal-focused dream session analyzed the portfolio execution trace from 2026-04-26, which executed both CUT (deletion) and DEVELOP (new features) operations across skillos, skillos_mini, and llm_os. The session extracted a reusable L3 tactical strategy for **multi-repository systematic pruning** with emphasis on pre-deletion verification and reference cleanup. The execution was marked as "success" overall but revealed **incomplete reference cleanup**: 60+ dangling doc references remain in QWEN.md, README.md, test files (~16 tests referencing deleted cooking cartridge), and setup scripts (setup_agents.sh/ps1). Root cause analysis identified that pre-deletion reference scanning occurred but cleanup was deferred as a separate task, creating reference debt. Four new negative constraints (29-32) codify the learnings: always pre-scan for references before deletion, synchronously update references in the same commit batch as deletion, audit setup scripts for bootstrap consistency, and use dependency ordering (leaf-first) for clustered deletions. Key insight: deferred cleanup batching creates phantom problems during future maintenance (e.g., developers update a deleted module, tests fail on deleted references, docs mislead readers). The new strategy (strat_3_multi-repo-systematic-pruning) operationalizes the 10-step pruning pattern: pre-deletion scan → dependency analysis → test validation → leaf-first deletions → synchronous reference cleanup → doc synchronization → test re-validation → setup script audit → completion verification → cross-project smoke tests.
+
+---
+
+## 2026-04-26T18:15:00Z
+**Dream ID:** dream_20260426_convergence_f7a2
+**Mode:** goal-focused
+**Filter:** convergence strategy eliminate reduce raise create cartridge kernel interface standardize layer-cake portfolio
+- Traces processed: 1 (2026-04-26_strategic_analysis_trace, L1 epic from Project_strategic_portfolio_analysis)
+- Sequences analyzed: 1 (L1 epic with 5 major findings/antipatterns)
+- Strategies created: 4 (L1×1, L2×1, L3×2)
+- Strategies updated: 0
+- Strategies deprecated: 0
+- Constraints learned: 7 (new: Constraints 22-28)
+- Traces pruned: 0 (goal-focused mode -- no pruning)
+
+This goal-focused dream session consolidated the strategic portfolio analysis conducted on 2026-04-26, analyzing the convergence opportunity across 4 projects (skillos, skillos_mini, RoClaw, llm_os). The session synthesized architectural learnings into reusable L1-L3 strategies centered on a unified **cartridge kernel** as the portfolio's convergence mechanism.
+
+**Key Strategic Insight (from analysis antipatterns)**: The portfolio's current state is fragmented — RoClaw uses 14 motor opcodes, llm_os uses 13; RoClaw traces use one format, skillos traces another; projects cannot share learned strategies due to incompatible interfaces. The convergence thesis: organize into a **layer-cake architecture** (Product→Platform→Infrastructure→I/O) with **cartridges** as the universal interface (manifest.json + schemas + dialect.gbnf). This enables the flywheel loop (traces → dream → strategies → cartridges → fine-tune → kernel → better traces).
+
+**Strategies Created**:
+
+1. **strat_1_multi_project_convergence_architecture** (L1 Epic): Defines the layer-cake vertical stack. skillos_mini serves product users (oficios trade-app). skillos is the platform for skill creators. llm_os is infrastructure/kernel. RoClaw is I/O. Cartridge is the universal exchange format. Priority roadmap: (Tier 1) grammar swap + ISA-aware compactor, (Tier 2) M1 validation, (Tier 3) trace standardization + dream↔kernel integration, (Tier 4) cartridge registry + fine-tuning. Confidence: 0.75 (synthesized from multiple strategic analyses).
+
+2. **strat_2_cartridge_manifest_standardization** (L2 Architecture): Formal specification of a cartridge manifest (JSON) with input/output schemas, ISA requirements, dialect (GBNF), dependencies, and registry metadata. Every component (RoClaw tool, skillos skill, llm_os capability) becomes an npm-like package. Enables discovery, versioning, composition, and cross-project deployment. Key insight: **cartridge manifest is the Rosetta Stone** between projects. Confidence: 0.70.
+
+3. **strat_3_unified_trace_format** (L3 Tactical): Standardized trace schema with YAML frontmatter (traceId, level, source, fidelity, outcome, confidence) + markdown body. Fidelity auto-computed from source (REAL_WORLD=1.0 → DREAM_TEXT=0.3). Solves cross-project dream learning: currently blocked because traces have incompatible field names. Migration: RoClaw by 2026-04-28, skillos by 2026-04-29, evolving-memory by 2026-04-30. Confidence: 0.65.
+
+4. **strat_3_canonical_isa_convergence** (L3 Tactical): Converges motor control opcodes across projects via canonical ISA v1 (16 opcodes: 0x00-0x0B core + 0x0C-0x0F cartridge-extensible). RoClaw 14-op → canonical 1:1 mapping via bridge adapter (roclaw_bridge.py stays 100% compatible). llm_os 13-op → canonical mapping. Dream-learned motor strategies become executable cartridges. Migration: ISA spec by 2026-04-27, validate on llm_os by 2026-04-30. Confidence: 0.68.
+
+**New Negative Constraints (22-28)**:
+- Constraint 22: Validate product (M1) before engineering features (M2+)
+- Constraint 23: Prune dead code immediately upon pivot
+- Constraint 24: ISA convergence mandatory for cross-project learning
+- Constraint 25: Trace format must be standardized
+- Constraint 26: Reduce compilation modes 4→2 (eliminate over-engineering)
+- Constraint 27: Infrastructure blockers (grammar swap, compactor) prioritized over features
+- Constraint 28: Flywheel must complete: traces → dream → strategies → cartridges → fine-tune → kernel
+
+**Integration with Parallel Dream (a3f2)**: Dream a3f2 (also 2026-04-26) focused on priority sequencing and flywheel closure. This dream (f7a2) focuses on architectural standards and implementation details. Together, they provide: (a3f2) what to build first, (f7a2) how to build it so projects converge. Both reference the same strategic analysis trace and extract compatible learnings.
+
+**Why This Matters**: The portfolio is at an inflection point. Without convergence, projects will continue diverging (incompatible ISAs, trace formats, interfaces), making cross-project learning impossible and requiring 3x the engineering effort to reach autonomy. With these 4 strategies and 7 constraints, the portfolio becomes a **unified learning system** where RoClaw's experience informs llm_os fine-tuning, skillos skills become cartridge templates, and dream consolidation drives kernel improvement. This is the **operational implementation of the cartridge kernel thesis**.
+
+---
+
+## 2026-04-26T20:15:00.000Z
+**Dream ID:** dream_20260426_a3f2
+**Mode:** goal-focused
+**Filter:** roadmap, priority, sequencing, grammar, swap, compactor, trade-app, validation, flywheel
+- Traces processed: 1 (tr_2026-04-26_strategic_analysis from Project_strategic_portfolio_analysis)
+- Sequences analyzed: 1 (L1 Epic: Portfolio convergence with 5 sub-goals)
+- Strategies created: 2 (L1 epics: cross-project-priority-sequencing, trace-dream-strategy-flywheel)
+- Strategies updated: 0
+- Strategies deprecated: 0
+- Constraints learned: 4 (Constraints 25-28: infrastructure deferral, flywheel closure, product validation, dead code elimination)
+- Traces pruned: 0 (goal-focused mode -- no pruning)
+
+This goal-focused dream session consolidated the 2026-04-26 strategic portfolio analysis from Project_strategic_portfolio_analysis. The analysis spanned 4 projects (llm_os, skillos, skillos_mini, RoClaw), identified architecture patterns, maturity levels, and convergence opportunities. Two major L1 epic strategies were extracted: (1) strat_1_cross-project-priority-sequencing (Tier 1 infrastructure blockers → Tier 2 product validation → Tier 3 interoperability standards → Tier 4 flywheel closure → Tier 5 feature development), and (2) strat_1_trace-dream-strategy-flywheel (the closed learning loop from execution traces → dream consolidation → strategy promotion → cartridge deployment → model fine-tune → better kernel). Four critical constraints were added: Constraint 27 (infrastructure deferral is a blocker), Constraint 28 (trace-to-improvement loop must be closed), and retroactive additions from parallel portfolio analyses (Constraints 22-25: product validation gates, dead code elimination, architectural thesis proof-of-concept, subsystem scope management). The strategic analysis identified llm_os grammar swap as the #1 priority in the entire portfolio (15% latency tax blocks kernel thesis), followed by ISA-aware compactor (correctness guarantee), skillos_mini M1 validation (product-market fit gate), and flywheel closure (enables self-improvement). Key findings: (a) skillos_mini was built with unvalidated M1 assumptions, risking 4-6 weeks of wasted features if market pivot occurs; (b) the trace-to-improvement loop is 60% complete (Phase 1: trace→dream working; Phases 2-4: strategy→cartridge→fine-tune missing); (c) cross-project ISA and trace format divergence prevents portfolio-wide pattern recognition; (d) RoClaw's 25 uncommitted sim traces should be committed immediately as training data for the dream engine. This dream session operationalizes the convergence thesis by decomposing it into executable tiers and identifying the critical path that unblocks everything else.
+
+---
+
 ## 2026-03-11T19:00:00.000Z
 **Dream ID:** dream_20260311_a7b3
 **Mode:** goal-focused
@@ -101,3 +238,19 @@ This goal-focused dream session analyzed code quality and test regression findin
 **Key finding: Missing test coverage for getTextSceneSystemPrompt().** BytecodeCompiler tests (line 477) cover `getSystemPrompt()` but have zero tests for `getTextSceneSystemPrompt()`. Changes to the prompt structure (e.g., removing SPATIAL ANALYSIS section) pass the test suite but break A/B tests silently. Solution: **strat_3_test-coverage-system-prompts** adds 12+ test assertions validating prompt structure, two-pass format teaching, field names, examples, and placeholder replacement.
 
 Three existing strategies updated to v2: strat_3_mock-inference-pattern (confidence 0.5→0.6, success_count 1→2), strat_3_scenario-runner-pattern (confidence 0.5→0.6, success_count 1→2), and strat_3_prompt-mode-alignment (cross-referenced by new shared-runner strategy). Six new constraints (18-23 mapped to implementation PR as 18-20, 21 pre-existing from 7f4c, 22-23 from f4c7) capture the regression vectors: do not duplicate scenario runner code, do not use regex-coupled parsing, add getTextSceneSystemPrompt tests, separate narrative from numerical scene data, and avoid flash-lite for numerical reasoning. This session's analysis addresses the meta-level quality regression—the test infrastructure itself had diverged from production behavior, requiring code consolidation and test rigor improvements to restore confidence in A/B testing validity.
+
+---
+
+## 2026-04-26T10:35:00.000Z
+**Dream ID:** dream_20260426_3a8f
+**Mode:** goal-focused
+**Filter:** architecture analysis, maturity assessment, technical debt, portfolio
+- Traces processed: 5 (tr_portfolio_llm_os_analysis, tr_portfolio_skillos_analysis, tr_portfolio_skillos_mini_analysis, tr_portfolio_roclaw_analysis, tr_portfolio_maturity_meta_analysis)
+- Sequences analyzed: 5 (1 L1 epic sequence, 4 L2 architecture sequences)
+- Strategies created: 3 (1 L1 epic, 2 L2 architecture)
+- Strategies updated: 0
+- Strategies deprecated: 0
+- Constraints learned: 4 (Constraints 22-25, appended to _negative_constraints.md)
+- Traces pruned: 0 (goal-focused mode -- no pruning)
+
+This goal-focused dream consolidation processed the strategic portfolio analysis of 4 projects (llm_os, skillos, skillos_mini, RoClaw) conducted on 2026-04-26. Three major strategies were extracted, each addressing a different level of the architecture decision hierarchy. **L1 Epic Strategy (strat_1_portfolio-architecture-review):** A reusable methodology for conducting multi-project portfolio architecture reviews. Key insight: portfolio assessment must examine thesis-execution gaps (what was designed vs what was built), focus clarity (how many competing subsystems?), and technical debt patterns (code duplication, test coverage gaps, framework mismatches). **L2 Architecture Strategy 1 (strat_2_project-maturity-assessment):** Framework for classifying projects into four maturity stages (Proof-of-Concept, Early Growth, Mid-stage, Late-stage) based on 5-6 dimensions. Applied to portfolio: llm_os is a PoC with strongest thesis but minimal code (adopt in stage: "design-first + one reference cartridge"), skillos is mid-stage but scattered across 4 subsystems (recommend: consolidate or split), skillos_mini is early growth with clear vision (fast-track to beta), RoClaw is late-stage production (use as architectural blueprint for other projects). **L2 Architecture Strategy 2 (strat_2_technical-debt-identification):** Cross-project debt pattern recognition. Identified five recurring anti-patterns: (1) Code duplication (scenario_runner exists in 2+ places across projects), (2) Test coverage gaps (getTextSceneSystemPrompt has no dedicated tests), (3) Framework mismatches (Flash-Lite used for numerical reasoning tasks), (4) Fragile coupling via regex-coupled parsing, (5) Infrastructure divergence (test paths diverge from production paths). Four new negative constraints (22-25) codify portfolio-level architecture decisions: design-first projects need proof-of-concept milestones (C22), projects with 4+ subsystems require consolidation or split (C23), focused single-vision projects are not limited in scalability (C24), and test infrastructure paths must never diverge from production (C25). This consolidation demonstrates that the dream engine's three-phase cycle scales from single-project (RoClaw) to multi-project (portfolio) analysis, extracting strategic learnings that span organizational levels.

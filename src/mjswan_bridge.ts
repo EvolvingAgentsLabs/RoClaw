@@ -26,6 +26,7 @@ import {
   type BytecodeFrame, type BytecodeFrameV2,
 } from './2_qwen_cerebellum/bytecode_compiler';
 import { DEFAULT_28BYJ48_SPEC } from './shared/stepper-kinematics';
+import { SCENARIO_PRESETS } from './shared/scenario_presets';
 
 // =============================================================================
 // Types
@@ -73,6 +74,10 @@ interface BridgeState {
   stallPose: { x: number; y: number; ts: number };
   /** Whether robot is currently stalled */
   stall: boolean;
+  /** Multi-target: index of the current active target */
+  currentTargetIndex: number;
+  /** Multi-target: total number of targets */
+  totalTargets: number;
 }
 
 /** Telemetry message pushed from bridge to RoClaw stack */
@@ -229,7 +234,7 @@ function parseTarget(spec: string): GoalTarget {
   };
 }
 
-function parseArgs(): { config: BridgeConfig; target: GoalTarget } {
+function parseArgs(): { config: BridgeConfig; targets: GoalTarget[] } {
   const args = process.argv.slice(2);
   const config: BridgeConfig = {
     udpPort: 4210,
@@ -238,7 +243,9 @@ function parseArgs(): { config: BridgeConfig; target: GoalTarget } {
     fps: 2,
     verbose: false,
   };
-  let target = DEFAULT_TARGET;
+  let targets: GoalTarget[] | null = null;
+  let singleTarget: GoalTarget | null = null;
+  let scenarioId: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -246,7 +253,9 @@ function parseArgs(): { config: BridgeConfig; target: GoalTarget } {
       case '--cam-port':  config.camPort = parseInt(args[++i], 10); break;
       case '--ws-port':   config.wsPort = parseInt(args[++i], 10); break;
       case '--fps':       config.fps = parseInt(args[++i], 10); break;
-      case '--target':    target = parseTarget(args[++i]); break;
+      case '--target':    singleTarget = parseTarget(args[++i]); break;
+      case '--targets':   targets = args[++i].split(',').map(s => parseTarget(s.trim())); break;
+      case '--scenario':  scenarioId = args[++i]; break;
       case '--verbose':   config.verbose = true; break;
       case '--help': case '-h':
         console.log(`
@@ -255,19 +264,48 @@ RoClaw mjswan Bridge — 3D Physics Simulator
 Usage: npm run sim:3d -- [options]
 
 Options:
-  --udp-port <N>   UDP port for bytecodes from RoClaw stack (default: 4210)
-  --cam-port <N>   HTTP port for MJPEG stream to VisionLoop (default: 8081)
-  --ws-port <N>    WebSocket port for browser connection (default: 9090)
-  --fps <N>        MJPEG stream frame rate (default: 2)
-  --target <spec>  Goal target as name:x:y:radius (default: red_cube:-0.6:-0.5:0.25)
-  --verbose        Line-by-line logs instead of dashboard
-  --help, -h       Show this help
+  --udp-port <N>      UDP port for bytecodes from RoClaw stack (default: 4210)
+  --cam-port <N>      HTTP port for MJPEG stream to VisionLoop (default: 8081)
+  --ws-port <N>       WebSocket port for browser connection (default: 9090)
+  --fps <N>           MJPEG stream frame rate (default: 2)
+  --target <spec>     Goal target as name:x:y:radius (default: red_cube:-0.6:-0.5:0.25)
+  --targets <specs>   Comma-separated multi-target list (scavenger hunt)
+  --scenario <id>     Load scenario preset (auto-sets target/targets)
+  --verbose           Line-by-line logs instead of dashboard
+  --help, -h          Show this help
+
+Scenarios:
+  ${Object.entries(SCENARIO_PRESETS).map(([id, p]) => `${id.padEnd(18)} ${p.name}`).join('\n  ')}
+
+Precedence: --target > --targets > --scenario > default
 `);
         process.exit(0);
     }
   }
 
-  return { config, target };
+  // Resolve targets with precedence: --target > --targets > --scenario > default
+  let resolvedTargets: GoalTarget[];
+  if (singleTarget) {
+    resolvedTargets = [singleTarget];
+  } else if (targets) {
+    resolvedTargets = targets;
+  } else if (scenarioId) {
+    const preset = SCENARIO_PRESETS[scenarioId];
+    if (!preset) {
+      console.error(`Unknown scenario: "${scenarioId}". Available: ${Object.keys(SCENARIO_PRESETS).join(', ')}`);
+      process.exit(1);
+    }
+    if (preset.targets) {
+      resolvedTargets = preset.targets.map(s => parseTarget(s));
+    } else {
+      resolvedTargets = [parseTarget(preset.target)];
+    }
+    console.log(`[Scenario] ${preset.name} — ${resolvedTargets.length} target(s)`);
+  } else {
+    resolvedTargets = [DEFAULT_TARGET];
+  }
+
+  return { config, targets: resolvedTargets };
 }
 
 // =============================================================================
@@ -278,7 +316,7 @@ function startWebSocketServer(
   config: BridgeConfig,
   state: BridgeState,
   latestJpeg: { data: Buffer },
-  target: GoalTarget,
+  targets: GoalTarget[],
 ): WebSocketServer {
   const wss = new WebSocketServer({ port: config.wsPort });
   let browserSocket: WebSocket | null = null;
@@ -300,10 +338,31 @@ function startWebSocketServer(
           state.framesReceived++;
         } else if (msg.type === 'pose') {
           state.pose = { x: msg.x, y: msg.y, h: msg.h };
-          const dx = msg.x - target.x;
-          const dy = msg.y - target.y;
+          const currentTarget = targets[state.currentTargetIndex];
+          const dx = msg.x - currentTarget.x;
+          const dy = msg.y - currentTarget.y;
           state.targetDistance = Math.sqrt(dx * dx + dy * dy);
-          state.goalReached = state.targetDistance < target.radius;
+
+          // Check arrival at current target
+          if (state.targetDistance < currentTarget.radius) {
+            if (state.currentTargetIndex < targets.length - 1) {
+              // Advance to next target
+              if (config.verbose) {
+                console.log(`[Target] Reached "${currentTarget.name}" (${state.currentTargetIndex + 1}/${targets.length}), advancing...`);
+              }
+              state.currentTargetIndex++;
+              const next = targets[state.currentTargetIndex];
+              const ndx = msg.x - next.x;
+              const ndy = msg.y - next.y;
+              state.targetDistance = Math.sqrt(ndx * ndx + ndy * ndy);
+              state.goalReached = false;
+            } else {
+              // All targets reached
+              state.goalReached = true;
+            }
+          } else {
+            state.goalReached = false;
+          }
         }
       } catch {
         if (config.verbose) {
@@ -363,7 +422,7 @@ function startUdpServer(
   config: BridgeConfig,
   state: BridgeState,
   wss: WebSocketServer,
-  target: GoalTarget,
+  targets: GoalTarget[],
 ): dgram.Socket {
   const socket = dgram.createSocket('udp4');
 
@@ -418,6 +477,7 @@ function startUdpServer(
       (wss as any).requestPose();
       // Small delay to let the browser respond, then send current pose
       setTimeout(() => {
+        const currentTarget = targets[state.currentTargetIndex];
         const status = JSON.stringify({
           pose: {
             x: Math.round(state.pose.x * 100) / 100,
@@ -428,9 +488,12 @@ function startUdpServer(
           led: 0,
           cmds: state.commandCount,
           uptime: Date.now() - state.startTime,
-          targetName: target.name,
+          targetName: currentTarget.name,
           targetDistance: Math.round(state.targetDistance * 100) / 100,
           goalReached: state.goalReached,
+          currentTargetIndex: state.currentTargetIndex,
+          totalTargets: targets.length,
+          currentTargetName: currentTarget.name,
         });
         socket.send(Buffer.from(status), rinfo.port, rinfo.address);
       }, 50);
@@ -595,7 +658,7 @@ function formatUptime(ms: number): string {
   return `${s}s`;
 }
 
-function renderDashboard(state: BridgeState, config: BridgeConfig, target: GoalTarget): void {
+function renderDashboard(state: BridgeState, config: BridgeConfig, targets: GoalTarget[]): void {
   const uptime = Date.now() - state.startTime;
   const last = state.commandHistory[state.commandHistory.length - 1];
   const lastOpName = last ? (OPCODE_NAMES[last.opcode] || '???') : '---';
@@ -607,9 +670,14 @@ function renderDashboard(state: BridgeState, config: BridgeConfig, target: GoalT
     ? '\x1B[32mCONNECTED\x1B[0m'
     : '\x1B[31mWAITING\x1B[0m';
 
+  const currentTarget = targets[state.currentTargetIndex];
   const targetStatus = state.goalReached
-    ? '\x1B[1;32mREACHED\x1B[0m'
+    ? '\x1B[1;32mALL REACHED\x1B[0m'
     : `${state.targetDistance.toFixed(2)}m`;
+
+  const targetLabel = targets.length > 1
+    ? `${currentTarget.name} (${state.currentTargetIndex + 1}/${targets.length})`
+    : currentTarget.name;
 
   const lines = [
     '\x1B[1;35m===== RoClaw mjswan Bridge (3D Physics) =====\x1B[0m',
@@ -617,7 +685,7 @@ function renderDashboard(state: BridgeState, config: BridgeConfig, target: GoalT
     `  \x1B[1mBrowser:\x1B[0m  ${wsStatus}   Frames: ${state.framesReceived}`,
     `  \x1B[1mCtrl:\x1B[0m     L=${state.lastCtrl[0].toFixed(3)} rad/s   R=${state.lastCtrl[1].toFixed(3)} rad/s`,
     `  \x1B[1mPose:\x1B[0m     x=${state.pose.x.toFixed(3)}  y=${state.pose.y.toFixed(3)}  h=${state.pose.h.toFixed(3)} rad`,
-    `  \x1B[1mTarget:\x1B[0m   ${target.name}  Dist: ${targetStatus}`,
+    `  \x1B[1mTarget:\x1B[0m   ${targetLabel}  Dist: ${targetStatus}`,
     '',
     `  \x1B[1mCommands:\x1B[0m ${state.commandCount}   \x1B[1mUptime:\x1B[0m ${formatUptime(uptime)}`,
     `  \x1B[1mLast:\x1B[0m    ${lastHex}  \x1B[36m${lastOpName}\x1B[0m`,
@@ -635,7 +703,8 @@ function renderDashboard(state: BridgeState, config: BridgeConfig, target: GoalT
 // =============================================================================
 
 async function main(): Promise<void> {
-  const { config, target } = parseArgs();
+  const { config, targets } = parseArgs();
+  const firstTarget = targets[0];
 
   const latestJpeg = { data: createMinimalJpeg() };
 
@@ -647,20 +716,28 @@ async function main(): Promise<void> {
     framesReceived: 0,
     lastCtrl: [0, 0],
     pose: { x: 0, y: 0, h: 0 },
-    targetDistance: Math.sqrt(target.x * target.x + target.y * target.y),
+    targetDistance: Math.sqrt(firstTarget.x * firstTarget.x + firstTarget.y * firstTarget.y),
     goalReached: false,
     lastClientRinfo: null,
     stallPose: { x: 0, y: 0, ts: Date.now() },
     stall: false,
+    currentTargetIndex: 0,
+    totalTargets: targets.length,
   };
 
   // Start servers
-  const wss = startWebSocketServer(config, state, latestJpeg, target);
-  const udpSocket = startUdpServer(config, state, wss, target);
+  const wss = startWebSocketServer(config, state, latestJpeg, targets);
+  const udpSocket = startUdpServer(config, state, wss, targets);
   const camServer = startCameraServer(config, latestJpeg);
 
   // Telemetry broadcast: push pose + stall status to last known UDP client every 500ms
-  const telemetryInterval = startTelemetryBroadcast(udpSocket, state, config, target);
+  // Telemetry tracks the current active target dynamically
+  const telemetryInterval = startTelemetryBroadcast(udpSocket, state, config, {
+    get name() { return targets[state.currentTargetIndex].name; },
+    get x() { return targets[state.currentTargetIndex].x; },
+    get y() { return targets[state.currentTargetIndex].y; },
+    get radius() { return targets[state.currentTargetIndex].radius; },
+  });
 
   // Banner
   if (config.verbose) {
@@ -694,7 +771,7 @@ async function main(): Promise<void> {
   let dashboardInterval: ReturnType<typeof setInterval> | undefined;
   if (!config.verbose) {
     await new Promise(r => setTimeout(r, 1500));
-    dashboardInterval = setInterval(() => renderDashboard(state, config, target), 500);
+    dashboardInterval = setInterval(() => renderDashboard(state, config, targets), 500);
   }
 
   // Graceful shutdown

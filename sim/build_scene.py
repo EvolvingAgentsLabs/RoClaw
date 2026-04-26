@@ -1,36 +1,52 @@
 """
-Build the RoClaw 3D simulation scene using mjswan.
+Build the RoClaw 3D simulation scenes using mjswan.
 
-Loads the MJCF robot model and creates a mjswan project with a
-"Navigation Arena" scene. No ONNX policy is used — RoClaw's VLM
-is the policy, controlled via the WebSocket bridge.
+Loads all MJCF scene files and creates a mjswan project with multiple
+selectable scenes. The browser scene selector shows all available scenarios.
 
-The scene includes two cameras:
-  - "eyes": Forward-facing on robot chassis (first-person view)
-  - "external_cam": Overhead bird's-eye view (matches V1 Android phone on tripod)
+Scenes:
+  - Navigation Arena     — Open arena with 3 obstacles and 1 red cube target
+  - Multi-Room Doorway   — Dividing wall with 40cm doorway gap
+  - Dense Obstacle Field — 8 obstacles with narrow passages
+  - L-Shaped Corridor    — Confined L-shaped corridor with 60cm width
+  - Scavenger Hunt       — 3 colored cube targets with moderate obstacles
 
-The bridge (mjswan_bridge.ts) can render from either camera. By default
-it uses "eyes" for the VisionLoop. Set --camera external_cam on the bridge
-to simulate the V1 external camera architecture.
+Each scene includes the RoClaw robot with:
+  - "eyes": Forward-facing camera (first-person view)
+  - "external_cam": Overhead bird's-eye view
 
 Usage:
     cd sim && python build_scene.py
 """
 
 import os
-import mjswan
 import mujoco
+import mjswan
 
 # Resolve paths relative to this script's directory
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MJCF_PATH = os.path.join(SCRIPT_DIR, "roclaw_robot.xml")
 DIST_DIR = os.path.join(SCRIPT_DIR, "dist")
 
-spec = mujoco.MjSpec.from_file(MJCF_PATH)
+# Scene definitions: (filename, display name)
+SCENES = [
+    ("roclaw_robot.xml",           "Navigation Arena"),
+    ("roclaw_multiroom.xml",       "Multi-Room Doorway"),
+    ("roclaw_dense_obstacles.xml", "Dense Obstacle Field"),
+    ("roclaw_corridor.xml",        "L-Shaped Corridor"),
+    ("roclaw_scavenger.xml",       "Scavenger Hunt"),
+]
 
 builder = mjswan.Builder()
 project = builder.add_project("RoClaw Sim")
-project.add_scene(spec=spec, name="Navigation Arena")
+
+for filename, name in SCENES:
+    path = os.path.join(SCRIPT_DIR, filename)
+    if os.path.exists(path):
+        spec = mujoco.MjSpec.from_file(path)
+        project.add_scene(spec=spec, name=name)
+        print(f"  + {name} ({filename})")
+    else:
+        print(f"  ! Skipping {name} — {filename} not found")
 
 app = builder.build(DIST_DIR)
 app.launch(port=8000)

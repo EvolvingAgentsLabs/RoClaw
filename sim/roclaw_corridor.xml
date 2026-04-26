@@ -1,0 +1,141 @@
+<!--
+  RoClaw L-Shaped Corridor Scene
+
+  Same 4x4m arena, but interior walls create an L-shaped corridor.
+  Corridor width: 60cm (robot is 15cm wide, needs clearance).
+
+  Vertical leg: x in [-0.3, 0.3], y in [-1.5, 0.5]
+  Horizontal leg: x in [0.3, 1.8], y in [0.2, 0.8]
+  Robot starts at (0, -1.2), target at (1.5, 0.5).
+
+  Tests: wall-following, L-turn cornering, confined-space navigation.
+-->
+<mujoco model="RoClaw_Corridor">
+  <compiler angle="radian"/>
+
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="implicit"/>
+
+  <default>
+    <geom condim="3" friction="1.0 0.005 0.0001"/>
+    <joint damping="0.01"/>
+  </default>
+
+  <asset>
+    <texture name="grid" type="2d" builtin="checker"
+             rgb1="0.9 0.9 0.9" rgb2="0.7 0.7 0.7"
+             width="512" height="512"/>
+    <material name="grid_mat" texture="grid" texrepeat="8 8" texuniform="true"/>
+    <material name="chassis_mat" rgba="0.2 0.2 0.8 1"/>
+    <material name="wheel_mat" rgba="0.15 0.15 0.15 1"/>
+    <material name="caster_mat" rgba="0.6 0.6 0.6 1"/>
+    <material name="wall_mat" rgba="0.5 0.5 0.5 1"/>
+    <material name="red_cube_mat" rgba="1.0 0.0 0.0 1"/>
+  </asset>
+
+  <visual>
+    <headlight ambient="0.3 0.3 0.3" diffuse="0.5 0.5 0.5"/>
+  </visual>
+
+  <worldbody>
+    <light name="overhead" pos="0 0 1.5" dir="0 0 -1"
+           diffuse="0.8 0.8 0.8" specular="0.2 0.2 0.2" directional="true"/>
+
+    <!-- Ground plane -->
+    <geom name="floor" type="plane" size="2 2 0.01" material="grid_mat"/>
+
+    <!-- Arena walls (outer boundary) -->
+    <geom name="wall_north" type="box" pos="0 2 0.05" size="2 0.02 0.05" rgba="0.5 0.5 0.5 0.3"/>
+    <geom name="wall_south" type="box" pos="0 -2 0.05" size="2 0.02 0.05" rgba="0.5 0.5 0.5 0.3"/>
+    <geom name="wall_east" type="box" pos="2 0 0.05" size="0.02 2 0.05" rgba="0.5 0.5 0.5 0.3"/>
+    <geom name="wall_west" type="box" pos="-2 0 0.05" size="0.02 2 0.05" rgba="0.5 0.5 0.5 0.3"/>
+
+    <!--
+      L-shaped corridor walls (10cm tall, opaque gray):
+
+      Vertical leg: corridor runs y from -1.5 to 0.5, between x=-0.3 and x=0.3
+      Horizontal leg: corridor runs x from 0.3 to 1.8, between y=0.2 and y=0.8
+
+      Inner walls form the L corner:
+    -->
+
+    <!-- Left wall of vertical leg: x=-0.3, from y=-1.5 to y=0.8 -->
+    <geom name="corridor_left" type="box" pos="-0.3 -0.35 0.05" size="0.02 1.15 0.1" material="wall_mat"/>
+
+    <!-- Right wall of vertical leg: x=0.3, from y=-1.5 to y=0.2 (stops at corner) -->
+    <geom name="corridor_right_vert" type="box" pos="0.3 -0.65 0.05" size="0.02 0.85 0.1" material="wall_mat"/>
+
+    <!-- Top wall of horizontal leg: y=0.8, from x=-0.3 to x=1.8 -->
+    <geom name="corridor_top_horiz" type="box" pos="0.75 0.8 0.05" size="1.05 0.02 0.1" material="wall_mat"/>
+
+    <!-- Bottom wall of horizontal leg: y=0.2, from x=0.3 to x=1.8 -->
+    <geom name="corridor_bottom_horiz" type="box" pos="1.05 0.2 0.05" size="0.75 0.02 0.1" material="wall_mat"/>
+
+    <!-- Dead-end cap at bottom of vertical leg: y=-1.5, from x=-0.3 to x=0.3 -->
+    <geom name="corridor_cap_south" type="box" pos="0 -1.5 0.05" size="0.32 0.02 0.1" material="wall_mat"/>
+
+    <!-- Dead-end cap at right of horizontal leg: x=1.8, from y=0.2 to y=0.8 -->
+    <geom name="corridor_cap_east" type="box" pos="1.8 0.5 0.05" size="0.02 0.32 0.1" material="wall_mat"/>
+
+    <!-- Target: red cube at end of horizontal leg -->
+    <body name="red_cube" pos="1.5 0.5 0.1">
+      <geom type="box" size="0.1 0.1 0.1" material="red_cube_mat"/>
+    </body>
+
+    <!-- External overhead camera -->
+    <camera name="external_cam" pos="0 0 0.8" xyaxes="1 0 0 0 1 0"
+            fovy="90" resolution="640 480"/>
+
+    <!-- ============== RoClaw Robot (starts in vertical leg) ============== -->
+    <body name="chassis" pos="0 -1.2 0.06">
+      <freejoint name="root"/>
+
+      <geom name="chassis_geom" type="box"
+            size="0.075 0.05 0.025"
+            mass="0.3"
+            material="chassis_mat"/>
+
+      <camera name="eyes" pos="0.075 0 0.02" xyaxes="0 -1 0 0 0 1"
+              fovy="65" resolution="320 240"/>
+
+      <!-- Left wheel -->
+      <body name="left_wheel" pos="0 0.05 -0.025">
+        <joint name="left_wheel_joint" type="hinge" axis="0 1 0" damping="0.005"/>
+        <geom name="left_wheel_geom" type="cylinder"
+              size="0.03 0.01"
+              euler="1.5708 0 0"
+              mass="0.05"
+              material="wheel_mat"
+              friction="1.5 0.005 0.0001"/>
+      </body>
+
+      <!-- Right wheel -->
+      <body name="right_wheel" pos="0 -0.05 -0.025">
+        <joint name="right_wheel_joint" type="hinge" axis="0 1 0" damping="0.005"/>
+        <geom name="right_wheel_geom" type="cylinder"
+              size="0.03 0.01"
+              euler="1.5708 0 0"
+              mass="0.05"
+              material="wheel_mat"
+              friction="1.5 0.005 0.0001"/>
+      </body>
+
+      <!-- Rear caster ball -->
+      <body name="caster" pos="-0.06 0 -0.025">
+        <joint name="caster_x" type="hinge" axis="1 0 0" damping="0.001"/>
+        <joint name="caster_y" type="hinge" axis="0 1 0" damping="0.001"/>
+        <geom name="caster_geom" type="sphere"
+              size="0.015"
+              mass="0.02"
+              material="caster_mat"
+              friction="0.05 0.001 0.0001"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <velocity name="left_wheel" joint="left_wheel_joint"
+              ctrlrange="-1.571 1.571" kv="1.0"/>
+    <velocity name="right_wheel" joint="right_wheel_joint"
+              ctrlrange="-1.571 1.571" kv="1.0"/>
+  </actuator>
+</mujoco>

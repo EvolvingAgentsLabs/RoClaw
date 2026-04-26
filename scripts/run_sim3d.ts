@@ -40,6 +40,7 @@ import { ReflexGuard, attachReflexGuard } from '../src/2_qwen_cerebellum/reflex_
 import { SceneGraphPolicy } from '../src/2_qwen_cerebellum/scene_graph_policy';
 import { createPerceptionInference } from '../src/2_qwen_cerebellum/gemini_robotics';
 import type { ArenaConfig } from '../src/2_qwen_cerebellum/vision_projector';
+import { SCENARIO_PRESETS } from '../src/shared/scenario_presets';
 
 dotenv.config();
 
@@ -74,6 +75,7 @@ let servePort = 8440;
 let collectTraces = true;
 let describeScene = false;
 let useSceneGraphPolicy = process.env.RF_POLICY === 'scene_graph';
+let scenarioId: string | undefined;
 
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
@@ -111,6 +113,9 @@ for (let i = 0; i < args.length; i++) {
     case '--scene-graph':
       useSceneGraphPolicy = true;
       break;
+    case '--scenario':
+      scenarioId = args[++i] || '';
+      break;
     case '--help':
       console.log(`Usage: npx tsx scripts/run_sim3d.ts [options]
 
@@ -118,6 +123,7 @@ Options:
   --goal <text>         Navigate to a described location (default mode)
   --explore             Explore the environment autonomously
   --constraints <text>  Additional constraints for navigation
+  --scenario <id>       Load scenario preset (auto-sets goal if not provided)
   --gemini              Use Gemini Robotics-ER instead of Qwen-VL (requires GOOGLE_API_KEY)
   --ollama              Use Ollama with a fine-tuned local model
   --ollama-model <name> Ollama model name (default: roclaw-nav:q8_0)
@@ -128,20 +134,37 @@ Options:
   --scene-graph         Use SceneGraphPolicy (VLM perceives, local controller decides)
   --help                Show this help message
 
+Scenarios:
+  ${Object.entries(SCENARIO_PRESETS).map(([id, p]) => `${id.padEnd(18)} ${p.name}`).join('\n  ')}
+
 Examples:
   npx tsx scripts/run_sim3d.ts --goal "navigate to the red box"
   npx tsx scripts/run_sim3d.ts --explore
+  npx tsx scripts/run_sim3d.ts --gemini --scenario multi-room
+  npx tsx scripts/run_sim3d.ts --gemini --scenario scavenger
   npx tsx scripts/run_sim3d.ts --goal "the door" --constraints "stay close to walls"
   GOOGLE_API_KEY=... npx tsx scripts/run_sim3d.ts --gemini --goal "find the red cube"
   npx tsx scripts/run_sim3d.ts --ollama --goal "find the red cube"  # Local fine-tuned model
-  npx tsx scripts/run_sim3d.ts --ollama --ollama-model roclaw-nav:q4km --goal "the red cube"
   npx tsx scripts/run_sim3d.ts --serve --gemini  # Tool server on :8440
-  npx tsx scripts/run_sim3d.ts --serve --serve-port 9000 --gemini
   # Collect traces with scene descriptions for gap analysis:
   npx tsx scripts/run_sim3d.ts --gemini --describe-scene --goal "find the red cube"
 `);
       process.exit(0);
   }
+}
+
+// Resolve scenario preset — auto-fill goal if not already provided
+let scenarioPreset: typeof SCENARIO_PRESETS[string] | undefined;
+if (scenarioId) {
+  scenarioPreset = SCENARIO_PRESETS[scenarioId];
+  if (!scenarioPreset) {
+    console.error(`Unknown scenario: "${scenarioId}". Available: ${Object.keys(SCENARIO_PRESETS).join(', ')}`);
+    process.exit(1);
+  }
+  if (!goal) {
+    goal = scenarioPreset.goal;
+  }
+  console.log(`[Scenario] ${scenarioPreset.name} — Bridge: npm run sim:3d -- --scenario ${scenarioId}`);
 }
 
 // Default goal for go_to mode if none specified
@@ -511,22 +534,39 @@ async function main(): Promise<void> {
     const statusSocket = dgram.createSocket('udp4');
     const statusFrame = encodeFrame({ opcode: Opcode.GET_STATUS, paramLeft: 0, paramRight: 0 });
 
+    // Multi-target tracking: remember last seen target index to detect advancement
+    let lastSeenTargetIndex = 0;
+
     // Permanent message handler — parses every response from the bridge
     statusSocket.on('message', (msg: Buffer) => {
       if (goalPollStopped) return;
       try {
         const status = JSON.parse(msg.toString());
         const dist = typeof status.targetDistance === 'number' ? status.targetDistance : null;
-        const name = status.targetName || 'target';
+        const name = status.currentTargetName || status.targetName || 'target';
+        const targetIndex = typeof status.currentTargetIndex === 'number' ? status.currentTargetIndex : 0;
+        const totalTargets = typeof status.totalTargets === 'number' ? status.totalTargets : 1;
 
         if (dist !== null) {
-          logger.info('Sim3D', `Target "${name}": ${dist.toFixed(2)}m away`);
+          const progress = totalTargets > 1 ? ` (${targetIndex + 1}/${totalTargets})` : '';
+          logger.info('Sim3D', `Target "${name}"${progress}: ${dist.toFixed(2)}m away`);
+        }
+
+        // Detect target advancement (bridge moved to next target in sequence)
+        if (targetIndex > lastSeenTargetIndex && totalTargets > 1) {
+          lastSeenTargetIndex = targetIndex;
+          const newGoal = `navigate to the ${name.replace('_', ' ')}`;
+          logger.info('Sim3D', `Multi-target: advancing to target ${targetIndex + 1}/${totalTargets} "${name}" — updating goal`);
+          visionLoop.setGoal(newGoal);
         }
 
         if (status.goalReached === true && dist !== null) {
           goalPollStopped = true;
           if (goalPollInterval) clearInterval(goalPollInterval);
-          logger.info('Sim3D', `GOAL CONFIRMED by physics engine: within ${dist.toFixed(2)}m of "${name}"`);
+          const finalMsg = totalTargets > 1
+            ? `ALL ${totalTargets} TARGETS REACHED — final: "${name}" at ${dist.toFixed(2)}m`
+            : `GOAL CONFIRMED by physics engine: within ${dist.toFixed(2)}m of "${name}"`;
+          logger.info('Sim3D', finalMsg);
           visionLoop.confirmArrival(`Physics: within ${dist.toFixed(2)}m of ${name}`);
 
           // Send STOP bytecode

@@ -146,3 +146,164 @@
 - **Severity:** high
 - **Learned From:** tr_ab_analysis_20260312 (Real-world A/B test: gemini-2.0-flash Wall Following scenario produced 133 MOVE_BACKWARD commands, ignoring CLEARANCE/PROGRESS sections, driving robot out of bounds. Root cause: flash-lite model defaults to qualitative matching, treats numerical sections as noise when embedded in perception text)
 - **Dream ID:** dream_20260312_7f4c
+
+## Constraint 22
+- **Description:** Do not start projects with design-first philosophy without an explicit end-to-end execution milestone -- architecture theses require proof-of-concept to reduce adoption risk
+- **Context:** portfolio strategy, project planning, architecture validation, proof-of-concept design
+- **Severity:** medium
+- **Learned From:** tr_portfolio_llm_os_analysis (llm_os has strongest architectural thesis but least running code; adoption risk compounds when design is validated but executable proof-of-concept doesn't exist. Recommendation: deliver bootloader + reference cartridge as minimum proof)
+- **Dream ID:** dream_20260426_3a8f
+
+## Constraint 23
+- **Description:** Do not allow projects to grow beyond 4 semi-autonomous subsystems without consolidation or product split -- scattered subsystem maintenance creates rework cycles and masks regressions through code duplication
+- **Context:** portfolio scope, subsystem coordination, feature focus, technical debt accumulation
+- **Severity:** medium
+- **Learned From:** tr_portfolio_skillos_analysis (skillos contains planning, agents, dream consolidation, scenario runner subsystems competing for maintenance. Result: 160+ lines of scenario runner code duplicated in A/B tests vs production, obscuring regression sources. Recommendation: consolidate overlapping subsystems or split into focused products)
+- **Dream ID:** dream_20260426_3a8f
+
+## Constraint 24
+- **Description:** Do not assume a project with clear product vision and narrow scope will struggle to scale -- early-growth projects with 1-2 focused subsystems achieve faster decision-making, cleaner architecture, and faster time-to-beta
+- **Context:** portfolio strategy, product management, MVP design, project scaling
+- **Severity:** low
+- **Learned From:** tr_portfolio_skillos_mini_analysis (skillos_mini has clearest product vision--on-device trade app for specific trades--and cleanest architecture post-split from skillos. Result: faster team onboarding, clear feature priorities, minimal technical debt. Recommendation: use as model for portfolio focus discipline)
+- **Dream ID:** dream_20260426_3a8f
+
+## Constraint 25
+- **Description:** Do not diverge test infrastructure paths from production paths under any circumstance -- invisible divergence masks regressions and creates false confidence in A/B testing validity
+- **Context:** test infrastructure, A/B testing, mock inference, regression prevention, test quality assurance
+- **Severity:** high
+- **Learned From:** dream_20260312_f4a9, tr_portfolio_skillos_analysis (A/B test scenario runner and production dream simulator parse scenes with different logic. When paths diverge (test uses regex-coupled mock inference, production uses real VLM), A/B test results no longer represent real execution. Solution: extract shared scenario_runner service module used by both test and production)
+- **Dream ID:** dream_20260426_3a8f
+
+## Constraint 22
+- **Description:** Do not build product features (M2+, advanced UI) before validating market fit (M1 interviews with target users) -- this violates product development phase gates and causes wasted engineering effort when pivot direction emerges
+- **Context:** skillos_mini trade-app development, product roadmap, priority ordering
+- **Severity:** high
+- **Learned From:** Project_strategic_portfolio_analysis (skillos_mini built M2/M3 features including recipe system, community sharing before M1 user validation. Pivot to trade-app (oficios) revealed early features misaligned with target market)
+- **Dream ID:** dream_20260426_convergence_f7a2
+
+## Constraint 23
+- **Description:** Do not maintain dead code paths (deprecated agent_runtime.py, off-pivot cartridge handlers, unused compilation modes) in the master codebase -- prune them immediately when project pivot occurs, as they consume cognitive load and obscure the critical path
+- **Context:** skillos dead code cleanup, llm_os compilation modes, code simplification, technical debt
+- **Severity:** high
+- **Learned From:** Project_strategic_portfolio_analysis (skillos includes 3+ deprecated stubs from pre-skill-tree architecture; llm_os has 4 compilation modes when only 2 are used; skillos_mini cartridges include off-pivot handlers for cooking/household when trade focus is optimal)
+- **Dream ID:** dream_20260426_convergence_f7a2
+
+## Constraint 24
+- **Description:** Do not define incompatible ISA opcode sets across related projects (llm_os 13 opcodes vs RoClaw 14 opcodes) -- the cartridge kernel must establish a canonical ISA with unambiguous opcode semantics, and all projects must converge on this unified standard
+- **Context:** multi-project architecture, ISA standardization, cartridge kernel interface, cross-project learning
+- **Severity:** high
+- **Learned From:** Project_strategic_portfolio_analysis (RoClaw and llm_os both use motor control opcodes but define them differently: rotate_cw vs ROTATE opcode with direction parameter; move_forward vs MOVE with speed. This prevents dream traces from one project being applicable to another)
+- **Dream ID:** dream_20260426_convergence_f7a2
+
+## Constraint 25
+- **Description:** Do not use project-specific trace formats (YAML vs markdown frontmatter, different field names, missing hierarchy levels) -- standardize all traces to a unified schema (YAML frontmatter + markdown body with Level field) to enable cross-project dream consolidation and strategy transfer
+- **Context:** trace format standardization, cross-project learning, dream engine input, memory interoperability
+- **Severity:** high
+- **Learned From:** Project_strategic_portfolio_analysis (RoClaw traces use "Level: 1/2/3/4" field; early skillos traces used different field names; evolving-memory uses enum-based hierarchy. This prevents automated cross-project pattern recognition because trace structure is inconsistent)
+- **Dream ID:** dream_20260426_convergence_f7a2
+
+## Constraint 26
+- **Description:** Do not over-engineer compilation/execution modes beyond what the use case requires -- reduce llm_os compilation modes from 4 (mode_0_raw, mode_1_grammar, mode_2_swapped, mode_3_incremental) to 2 (baseline, grammar-aware), eliminating cross-mode state corruption risk and cognitive load
+- **Context:** llm_os compilation pipeline, ISA-aware compactor, grammar swap design, state management
+- **Severity:** medium
+- **Learned From:** Project_strategic_portfolio_analysis (llm_os has 4 distinct compilation modes but only modes 0 and 2 are actively used in production; modes 1/3 introduce ISA_MISMATCH risks and obscure the grammar-swap mechanism)
+- **Dream ID:** dream_20260426_convergence_f7a2
+
+## Constraint 27
+- **Description:** Do not defer critical infrastructure work (grammar swap latency reduction, KV compactor correctness guarantee) in favor of feature engineering -- infrastructure blockers prevent the system from reaching its theoretical performance ceiling and must be resolved in priority order before dependent work
+- **Context:** portfolio priority sequencing, cross-project roadmapping, llm_os kernel development
+- **Severity:** high
+- **Learned From:** tr_2026-04-26_strategic_analysis (Strategic analysis identifies grammar swap as #1 priority in entire portfolio: 3 HTTP requests per syscall = 15% latency tax blocks "LLM as CPU" thesis. ISA-aware compactor is #1 correctness risk. These 4-6 week foundational efforts unblock all downstream kernel validation, better model fine-tuning, and cartridge promotion pipeline)
+- **Dream ID:** dream_20260426_a3f2
+
+## Constraint 28
+- **Description:** Do not complete the trace-to-improvement flywheel at 60% -- consolidate the loop: traces → dream consolidation → strategies → cartridge promotion → fine-tune → better kernel. Breaking this loop at any stage prevents execution learning from translating to system improvement
+- **Context:** self-improving systems, dream engine output utilization, RoClaw-llm_os integration, model fine-tuning
+- **Severity:** high
+- **Learned From:** tr_2026-04-26_strategic_analysis (Currently: RoClaw traces→dream→strategies works (PHASE 1 of flywheel). But RoClaw strategies don't promote into llm_os cartridge manifests (PHASE 2 missing). And neither project's traces promote to DPO fine-tune data (PHASE 3 missing). Closing the gap is the highest-leverage work after infrastructure items, enabling kernel self-improvement via portfolio-wide experience)
+- **Dream ID:** dream_20260426_a3f2
+
+## Constraint 29
+- **Description:** Do not implement KV cache compaction without explicit ISA state extraction and preamble injection -- dropping tokens that contain unclosed <|loop|> or pending <|result|> constructs causes silent grammar state corruption on session resume
+- **Context:** llm_os kernel development, KV cache management, GBNF state machine coherence, message history summarization
+- **Severity:** high
+- **Learned From:** tr_20260426_execution_trace_develop_operations (runtime/swap.rs must extract IsaState before dropping tokens and inject <|state|>{...}<|/state|> preamble into summary; omitting this causes PHASE 2 REM sleep strategy extraction failure: ISA-aware compaction works in theory but lacks integration test validation)
+- **Dream ID:** dream_20260426_kernel_b2f8
+
+## Constraint 30
+- **Description:** Do not add new ISA opcodes to grammar without verifying presence in BOTH top-stmt and loop-stmt alternations -- missing from either level causes silent grammar mismatches and parser desynchronization
+- **Context:** llm_os ISA evolution, GBNF rule consistency, opcode scope definition, grammar-parser coherence
+- **Severity:** high
+- **Learned From:** tr_20260426_execution_trace_develop_operations (adding <|state|> required updates to grammar/isa.gbnf lines defining both top-stmt and loop-stmt; failure to add to both would create invisible parse failures in nested loop contexts)
+- **Dream ID:** dream_20260426_kernel_b2f8
+
+## Constraint 31
+- **Description:** Do not defer integration testing for compaction behavior after implementation -- the code for ISA state extraction was written but 5000-token depth-3 round-trip test remains pending, leaving success criteria unvalidated
+- **Context:** llm_os compactor testing, state machine validation, kernel correctness guarantees, success criteria verification
+- **Severity:** medium
+- **Learned From:** tr_20260426_execution_trace_develop_operations (NEXT_STEPS.md §2 defines clear success criteria: "5000-token dispatch with nested loops at depth 3 survives compaction without grammar rejects"; trace notes "Added 3 tests" but integration test suite is incomplete; this blocks confidence increase from 0.75→0.90)
+- **Dream ID:** dream_20260426_kernel_b2f8
+
+## Constraint 32
+- **Description:** Do not implement trace format conversion without standardizing field names across all source projects -- different projects using "Level" vs "hierarchy_level", "timestamp" vs "ts", "outcome" vs "result" creates fragile regex parsing and silent data loss
+- **Context:** cross-project trace ingestion, DPO dataset preparation, trace pipeline robustness, schema standardization
+- **Severity:** medium
+- **Learned From:** tr_20260426_execution_trace_develop_operations (scripts/promote_traces.py assumes specific field names; this works for RoClaw markdown traces but fails if skillos or evolving-memory traces have different naming conventions; solution requires pre-ingestion field normalization or project-specific parsers)
+- **Dream ID:** dream_20260426_kernel_b2f8
+
+## Constraint 29
+- **Description:** Do not delete code without pre-deletion reference scanning -- perform repository-wide grep for all references to target items across code, tests, documentation, scripts, and configuration files before deletion begins
+- **Context:** code pruning, multi-repo deletion, dangling reference prevention, technical debt elimination
+- **Severity:** high
+- **Learned From:** tr_2026-04-26_portfolio_execution (CUT operations deleted 40+ items but left 60+ dangling references in documentation (QWEN.md, README.md), test files (~16 test files referencing deleted cooking cartridge), and setup scripts (setup_agents.sh/ps1). Root cause: pre-deletion scan cataloged references but cleanup was deferred as separate task, creating phantom problems during future maintenance)
+- **Dream ID:** dream_20260426_pruning_a7e5
+
+## Constraint 30
+- **Description:** Do not defer reference cleanup after code deletion -- synchronously update all references (imports, documentation, test fixtures, config files, setup scripts) as part of the same commit batch as the deletion
+- **Context:** code pruning, reference consistency, documentation debt prevention, test suite maintenance
+- **Severity:** high
+- **Learned From:** tr_2026-04-26_portfolio_execution (Deferred cleanup left dangling references that obscure debugging and consume cognitive load: README.md command examples reference deleted agent_runtime.py, QWEN.md tool functions reference deleted :8420 port, test files mock deleted cooking cartridge. Learning: async cleanup batching creates reference debt that compounds over time)
+- **Dream ID:** dream_20260426_pruning_a7e5
+
+## Constraint 31
+- **Description:** Do not assume setup scripts automatically stay in sync with code deletions -- audit all bootstrapping scripts (setup_agents.sh, setup_agents.ps1, build_scene.py, etc.) and remove references to deleted directories/files immediately after deletion
+- **Context:** infrastructure scripts, portfolio initialization, multi-platform deployment, environment consistency
+- **Severity:** medium
+- **Learned From:** tr_2026-04-26_portfolio_execution (setup_agents.sh and setup_agents.ps1 still reference deleted system/agents/ directory. Result: fresh environment bootstrap will fail or create orphaned directories if scripts execute blindly. These scripts define the reproducible initialization state and must be updated synchronously with deletion)
+- **Dream ID:** dream_20260426_pruning_a7e5
+
+## Constraint 32
+- **Description:** Do not cluster unrelated deletions (demo projects, deprecated subsystems, experimental code) without explicit dependency ordering -- delete leaf-first (items with no dependents) to avoid cascading failures
+- **Context:** code pruning sequencing, multi-item deletions, dependency analysis
+- **Severity:** medium
+- **Learned From:** tr_2026-04-26_portfolio_execution (In skillos_mini pruning, demo projects should have been deleted before their dependencies (experimental cartridges). Clustering without order risks deleting items needed by surviving code. Solution: topological sort of dependencies, delete leaf nodes first, handle clusters as isolated units)
+- **Dream ID:** dream_20260426_pruning_a7e5
+
+## Constraint 33
+- **Description:** After file/directory deletion, always re-validate all cross-references in documentation. Reference integrity checking must cover .md files, comments, examples, and shell scripts (not just functional code). False negatives in validation leave dangling references as technical debt
+- **Context:** validation, file deletion, reference integrity, documentation maintenance
+- **Severity:** high
+- **Learned From:** 2026-04-26_execution_trace (CUT operations deleted 8 skillos items; functional validation passed (Python/Rust syntax OK, grammar OK, reference integrity OK), but documentation audit found 60+ dangling references in README, QWEN, test files, setup scripts. This reveals reference integrity checking was limited to functional code, not documentation)
+- **Dream ID:** dream_20260426_exec_pruning_kernel_validation
+
+## Constraint 34
+- **Description:** Implement a doc debt tracking system. After deletions, quantify remaining dangling references by type (function examples, command examples, script paths, test comments) and severity (critical/high/medium/low). Schedule fixes by priority: critical examples and API docs same-day, high-priority items in next release, medium/low deferred to tech debt sprints
+- **Context:** documentation maintenance, technical debt tracking, post-deletion cleanup
+- **Severity:** high
+- **Learned From:** 2026-04-26_execution_trace (Portfolio cleanup left 5 QWEN.md tool refs to :8420, 7 README command examples, 16 test comments, setup script refs -- classified as CRITICAL/HIGH but no tracking system. Result: dangling references remained unfixed in main branch, confusing users and developers)
+- **Dream ID:** dream_20260426_exec_pruning_kernel_validation
+
+## Constraint 35
+- **Description:** Never validate file deletions in isolation. Always conduct a pre-deletion reference audit (grep across repo for file/function/port names). Document findings. Then delete. Then re-validate post-deletion
+- **Context:** validation process, deletion safety, reference tracking
+- **Severity:** medium
+- **Learned From:** 2026-04-26_execution_trace (Deletions happened without pre-audit of documentation references. Post-deletion audit found references that could have been caught and addressed before deletion, reducing cleanup burden and preventing merged-in dangling references)
+- **Dream ID:** dream_20260426_exec_pruning_kernel_validation
+
+## Constraint 36
+- **Description:** Maintain a "Deleted Artifacts" registry in each project (e.g., system/memory/deleted_artifacts.md) documenting what was removed, when, and why. Include patterns (old imports, old ports, old file paths) that should trigger warnings in future validation
+- **Context:** deletion tracking, reference audit enablement, project memory
+- **Severity:** medium
+- **Learned From:** 2026-04-26_execution_trace (No central record of deleted entities made follow-up reference audit difficult. A deleted_artifacts.md manifest would have enabled fast pattern searching and prioritization of cleanup work)
+- **Dream ID:** dream_20260426_exec_pruning_kernel_validation

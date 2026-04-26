@@ -1,0 +1,27 @@
+---
+timestamp: "2026-04-07T22:32:32.990Z"
+goal: "navigate to the red cube"
+outcome: success
+source: sim_3d
+fidelity: 0.8
+confidence: 0.9
+frames: 1
+duration_ms: 11234
+duration: "11s"
+outcome_reason: "Physics: within 0.22m of red_cube"
+tags: [sim3d, frames:1]
+---
+
+# Sim3D Trace: navigate to the red cube
+
+**Outcome**: success (Physics: within 0.22m of red_cube)
+**Duration**: 11s | **Frames**: 1 | **Confidence**: 0.9
+
+## Actions
+
+### 2026-04-07T22:32:24.161Z
+**Reasoning:** [camera frame at 2026-04-07T22:32:24.161Z]
+**Action:** TOOLCALL:{"name":"rotate_cw","args":{"speed":128,"degrees":45}}
+**Result:** bytecode=aa052d80a8ff
+
+---

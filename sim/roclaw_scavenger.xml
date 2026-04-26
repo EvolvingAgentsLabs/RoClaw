@@ -1,0 +1,135 @@
+<!--
+  RoClaw Scavenger Hunt Scene
+
+  Same 4x4m arena with 3-4 moderate obstacles and 3 colored cube targets:
+    - Red   (-0.6, -0.5)
+    - Blue   (0.7,  0.5)
+    - Green (-0.5,  0.8)
+
+  Tests: sequential multi-goal execution, target-switching.
+-->
+<mujoco model="RoClaw_Scavenger">
+  <compiler angle="radian"/>
+
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="implicit"/>
+
+  <default>
+    <geom condim="3" friction="1.0 0.005 0.0001"/>
+    <joint damping="0.01"/>
+  </default>
+
+  <asset>
+    <texture name="grid" type="2d" builtin="checker"
+             rgb1="0.9 0.9 0.9" rgb2="0.7 0.7 0.7"
+             width="512" height="512"/>
+    <material name="grid_mat" texture="grid" texrepeat="8 8" texuniform="true"/>
+    <material name="chassis_mat" rgba="0.2 0.2 0.8 1"/>
+    <material name="wheel_mat" rgba="0.15 0.15 0.15 1"/>
+    <material name="caster_mat" rgba="0.6 0.6 0.6 1"/>
+    <material name="red_cube_mat" rgba="1.0 0.0 0.0 1"/>
+  </asset>
+
+  <visual>
+    <headlight ambient="0.3 0.3 0.3" diffuse="0.5 0.5 0.5"/>
+  </visual>
+
+  <worldbody>
+    <light name="overhead" pos="0 0 1.5" dir="0 0 -1"
+           diffuse="0.8 0.8 0.8" specular="0.2 0.2 0.2" directional="true"/>
+
+    <!-- Ground plane -->
+    <geom name="floor" type="plane" size="2 2 0.01" material="grid_mat"/>
+
+    <!-- Arena walls -->
+    <geom name="wall_north" type="box" pos="0 2 0.05" size="2 0.02 0.05" rgba="0.5 0.5 0.5 0.3"/>
+    <geom name="wall_south" type="box" pos="0 -2 0.05" size="2 0.02 0.05" rgba="0.5 0.5 0.5 0.3"/>
+    <geom name="wall_east" type="box" pos="2 0 0.05" size="0.02 2 0.05" rgba="0.5 0.5 0.5 0.3"/>
+    <geom name="wall_west" type="box" pos="-2 0 0.05" size="0.02 2 0.05" rgba="0.5 0.5 0.5 0.3"/>
+
+    <!-- Moderate obstacles -->
+    <body name="obstacle1" pos="0.2 0.1 0.06">
+      <geom type="box" size="0.1 0.08 0.06" rgba="0.4 0.3 0.8 1"/>
+    </body>
+    <body name="obstacle2" pos="-0.3 0.3 0.075">
+      <geom type="box" size="0.08 0.1 0.075" rgba="0.9 0.7 0.1 1"/>
+    </body>
+    <body name="obstacle3" pos="0.4 -0.4 0.04">
+      <geom type="cylinder" size="0.07 0.04" rgba="0.2 0.7 0.3 1"/>
+    </body>
+    <body name="obstacle4" pos="-0.1 0.6 0.05">
+      <geom type="cylinder" size="0.06 0.05" rgba="0.7 0.4 0.7 1"/>
+    </body>
+
+    <!-- Target 1: Red cube -->
+    <body name="red_cube" pos="-0.6 -0.5 0.1">
+      <geom type="box" size="0.1 0.1 0.1" material="red_cube_mat"/>
+    </body>
+
+    <!-- Target 2: Blue cube (inline material) -->
+    <body name="blue_cube" pos="0.7 0.5 0.1">
+      <geom type="box" size="0.1 0.1 0.1" rgba="0.0 0.0 1.0 1"/>
+    </body>
+
+    <!-- Target 3: Green cube (inline material) -->
+    <body name="green_cube" pos="-0.5 0.8 0.1">
+      <geom type="box" size="0.1 0.1 0.1" rgba="0.0 0.8 0.0 1"/>
+    </body>
+
+    <!-- External overhead camera -->
+    <camera name="external_cam" pos="0 0 0.8" xyaxes="1 0 0 0 1 0"
+            fovy="90" resolution="640 480"/>
+
+    <!-- ============== RoClaw Robot ============== -->
+    <body name="chassis" pos="0 0 0.06">
+      <freejoint name="root"/>
+
+      <geom name="chassis_geom" type="box"
+            size="0.075 0.05 0.025"
+            mass="0.3"
+            material="chassis_mat"/>
+
+      <camera name="eyes" pos="0.075 0 0.02" xyaxes="0 -1 0 0 0 1"
+              fovy="65" resolution="320 240"/>
+
+      <!-- Left wheel -->
+      <body name="left_wheel" pos="0 0.05 -0.025">
+        <joint name="left_wheel_joint" type="hinge" axis="0 1 0" damping="0.005"/>
+        <geom name="left_wheel_geom" type="cylinder"
+              size="0.03 0.01"
+              euler="1.5708 0 0"
+              mass="0.05"
+              material="wheel_mat"
+              friction="1.5 0.005 0.0001"/>
+      </body>
+
+      <!-- Right wheel -->
+      <body name="right_wheel" pos="0 -0.05 -0.025">
+        <joint name="right_wheel_joint" type="hinge" axis="0 1 0" damping="0.005"/>
+        <geom name="right_wheel_geom" type="cylinder"
+              size="0.03 0.01"
+              euler="1.5708 0 0"
+              mass="0.05"
+              material="wheel_mat"
+              friction="1.5 0.005 0.0001"/>
+      </body>
+
+      <!-- Rear caster ball -->
+      <body name="caster" pos="-0.06 0 -0.025">
+        <joint name="caster_x" type="hinge" axis="1 0 0" damping="0.001"/>
+        <joint name="caster_y" type="hinge" axis="0 1 0" damping="0.001"/>
+        <geom name="caster_geom" type="sphere"
+              size="0.015"
+              mass="0.02"
+              material="caster_mat"
+              friction="0.05 0.001 0.0001"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <velocity name="left_wheel" joint="left_wheel_joint"
+              ctrlrange="-1.571 1.571" kv="1.0"/>
+    <velocity name="right_wheel" joint="right_wheel_joint"
+              ctrlrange="-1.571 1.571" kv="1.0"/>
+  </actuator>
+</mujoco>
