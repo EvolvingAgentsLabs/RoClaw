@@ -163,7 +163,7 @@ sequenceDiagram
         Cereb->>Cam: capture frame
         Cam-->>Cereb: 320×240 JPEG
         Cereb->>VLM: frame + prompt
-        VLM-->>Cereb: { box_2d, label, depth_cm }
+        VLM-->>Cereb: { box_2d, label, distance_cm, direction, passby }
         Cereb->>Proj: bbox + telemetry
         Proj-->>SG: arena_xyz
         SG->>RC: target node + bearing
@@ -213,18 +213,38 @@ flowchart LR
 
 ### why scene-graph won
 
-The `SceneGraphPolicy` is now the **canonical path**. Three reasons:
+The `SceneGraphPolicy` is the **default** (opt-out via `--legacy-motor`).
+Four reasons, three validated by peer-reviewed papers:
 
 1. **L0 is possible.** When motor commands come from a deterministic TS
    controller, ReflexGuard can predict their effect (cone intersection
    against scene-graph obstacles) and veto reliably. With direct VLM
    tool calls, the guard would need to second-guess the LLM.
+   ReflexGuard now runs in **active mode** by default (was `shadow`).
 2. **Memory persists.** The scene graph is a queryable spatial model —
    the cortex can ask "which doorways did I see last hour?" and get a
    cheap answer without re-prompting the VLM.
-3. **Distillation is easier.** Fine-tuning Qwen3-VL on bounding-box
+3. **Distillation is easier.** Fine-tuning a VLM on bounding-box
    extraction beats fine-tuning it on motor reasoning by every metric
    we've benchmarked. The model only needs to be a *spatial perceiver*.
+4. **Research-validated.** NavGPT-2 (ECCV 2024) and Spartun3D (ICLR 2025)
+   both show that separating perception from policy outperforms end-to-end
+   VLM motor control. Martorell (UBA/CONICET 2025) proves JSON/Cartesian
+   coordinates outperform text for spatial reasoning across all model sizes.
+
+### egocentric spatial grounding (Spartun3D-style)
+
+The VLM prompt now requests three **egocentric spatial fields** per
+detected non-robot object, inspired by Spartun3D's situated scene graph:
+
+| Field | Type | Example | Purpose |
+|---|---|---|---|
+| `estimated_distance_cm` | number | `45` | VLM-estimated distance from robot |
+| `direction_from_agent` | 8-way compass | `"front_left"` | Egocentric direction relative to robot heading |
+| `passby_objects` | string[] | `["blue wall"]` | Objects between robot and this object |
+
+These complement the projector's exact computation from bounding boxes
+and enable cross-validation, fallback, and richer scene understanding.
 
 `VLMMotorPolicy` stays in tree as a comparison baseline, marked for
 removal in [`NEXT_STEPS.md`](NEXT_STEPS.md) §2.A.
@@ -248,7 +268,7 @@ flowchart TB
     Synth --> Pool
 
     Pool --> Lora[Unsloth LoRA<br/>weighted by fidelity]
-    Lora --> Gguf[qwen3-vl-2b.gguf]
+    Lora --> Gguf["qwen3-vl-8b.gguf<br/>(8B min · Martorell)"]
     Gguf -- "ollama load" --> Run
 
     Pool --> Skl[skillos consolidates]
@@ -402,9 +422,10 @@ src/
 │   ├── memory_manager.ts         ← .md trace IO
 │   ├── strategy_store.ts         ← strategies/*.md retrieval
 │   ├── trace_logger.ts           ← per-run markdown emitter
+│   ├── sim3d_trace_collector.ts  ← sim3d frame capture + auto-snapshot
 │   ├── dream_inference.ts        ← dream-mode VLM driver
 │   ├── dream_simulator/          ← MuJoCo dream renderer
-│   └── roclaw_dream_adapter.ts   ← skillos ↔ traces bridge
+│   └── roclaw_dream_adapter.ts   ← skillos ↔ traces bridge (md + json)
 └── mjswan_bridge.ts              ← MuJoCo HTTP/WebSocket bridge
 ```
 
@@ -412,21 +433,74 @@ src/
   <img src="assets/divider.svg" alt="" width="100%"/>
 </p>
 
-## ▸ §10 what's not here yet
+## ▸ §10 recent changes (2026-04-27)
 
-- **Local distillation pipeline** — the Unsloth LoRA loop that turns
-  trace `.md` files into a fine-tuned Qwen3-VL GGUF. Sketched in
-  notebooks; needs productionization. See [`NEXT_STEPS.md §1`](NEXT_STEPS.md).
-- **IMU fusion** — current pose is dead-reckoned from step counts.
-  See [`NEXT_STEPS.md §3.A`](NEXT_STEPS.md).
-- **Monocular depth in the VLM prompt** — currently inferred from the
-  bounding-box Y coordinate (flat-ground assumption).
-  See [`NEXT_STEPS.md §3.B`](NEXT_STEPS.md).
-- **Active-mode ReflexGuard** — running in shadow mode by default;
-  flips to `--reflex=on` per-run for now.
+Implemented from the [strategic analysis](strategic-analysis-2026-04-27.md),
+cross-referencing 4 peer-reviewed papers (Spartun3D ICLR 2025, NavGPT-2
+ECCV 2024, Martorell UBA/CONICET 2025, Tehenan et al. 2025):
 
-These are *intentionally* incomplete. The roadmap is in
-[`NEXT_STEPS.md`](NEXT_STEPS.md).
+- **SceneGraphPolicy is now the default.** No env var needed.
+  `--legacy-motor` flag opts out. Falls back gracefully when `--gemini`
+  is not provided.
+- **ReflexGuard runs in `active` mode.** Collision vetoes are enforced,
+  not just logged. Use `RF_REFLEX_ENABLED=shadow` to observe-only.
+  Auto-enables with SceneGraphPolicy (no separate flag required).
+- **Spartun3D egocentric spatial grounding.** VLM prompt now requests
+  `estimated_distance_cm`, `direction_from_agent` (8-way compass), and
+  `passby_objects` per detected object. Parser validates all fields.
+- **Auto-snapshot traces on veto/stall.** ReflexGuard `reflexStop` and
+  `shadowVeto` events, plus TelemetryMonitor `stall` events, automatically
+  trigger SceneGraph snapshots in the trace collector. Feeds the dream
+  consolidation flywheel with failure-mode context.
+- **JSON/Cartesian serialization.** `serializeSceneGraph('json')` outputs
+  compact `{x_cm, y_cm, heading_deg}` per node — optimal for LLM spatial
+  reasoning per Martorell et al.
+
+## ▸ §11 next steps · research-backed roadmap
+
+Priorities derived from the [strategic analysis](strategic-analysis-2026-04-27.md).
+Each item cites the paper that motivates it.
+
+### tier 2 · do next
+
+| # | Feature | Paper | Status |
+|---|---------|-------|--------|
+| 2.6 | ISA v2 transition (8-byte frames) | — | ESP32 firmware needed |
+| 2.8 | Deprecate VLMMotorPolicy (remove code) | NavGPT-2 | After 2 sim regression runs |
+
+### tier 3 · do later
+
+| # | Feature | Paper | Rationale |
+|---|---------|-------|-----------|
+| 3.1 | Distill VLM to 8B+ (not 2B) | Martorell | Sub-8B fails spatial reasoning at chance level |
+| 3.2 | IMU fusion (BNO085) | — | Dead-reckoning drift → false success traces |
+| 3.3 | Headless MuJoCo dream rendering | NavGPT-2 | Replace text-only dreams (fidelity 0.3) with sim dreams (fidelity 0.8) |
+
+### tier 4 · future research
+
+| # | Feature | Paper | Rationale |
+|---|---------|-------|-----------|
+| 4.1 | Full dream flywheel (trace → LoRA → GGUF → Ollama) | — | Closes the learning loop end-to-end |
+| 4.2 | Visual odometry (4-frame optical flow) | — | Drift-free pose estimation |
+| 4.3 | Activation steering for spatial R³ subspace | Tehenan et al. | Probe/steer the VLM's internal spatial model |
+| 4.4 | Spatial benchmarks (SpartQA, StepGame) | Martorell | Quantify spatial reasoning quality before/after distillation |
+
+### critical corrections from the papers
+
+1. **8B model minimum.** Martorell proves sub-8B models perform at chance
+   level on spatial tasks regardless of prompt format. The distillation
+   target must be Qwen3-VL-8B or larger — not 2B.
+2. **JSON/Cartesian format.** Structured coordinates consistently outperform
+   text-based or topological formats for LLM spatial reasoning. All
+   LLM-facing serialization should use JSON with explicit `x_cm`, `y_cm`.
+3. **Egocentric framing.** Spartun3D shows 3D situated descriptions
+   (direction + distance + passby objects from agent's POV) dramatically
+   improve spatial understanding vs. allocentric coordinates alone.
+4. **Frozen VLM + policy head.** NavGPT-2 shows a frozen VLM backbone
+   with a trained policy network outperforms end-to-end VLM motor control.
+   SceneGraphPolicy already follows this architecture.
+
+Full analysis: [`docs/strategic-analysis-2026-04-27.md`](strategic-analysis-2026-04-27.md).
 
 <p align="center">
   <img src="assets/divider.svg" alt="" width="100%"/>
@@ -437,5 +511,5 @@ These are *intentionally* incomplete. The roadmap is in
 </p>
 
 <p align="center">
-  <sub><code>// ARCH.MAP // 5 TIERS · 8 DIAGRAMS · TRACE-DRIVEN MEMORY</code></sub>
+  <sub><code>// ARCH.MAP // 5 TIERS · 8 DIAGRAMS · RESEARCH-BACKED ROADMAP</code></sub>
 </p>

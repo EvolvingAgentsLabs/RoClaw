@@ -674,6 +674,17 @@ Identify and report:
   - The target object referenced by the goal.
   - Any obstacle that occupies the floor (walls, boxes, furniture).
 
+For EVERY non-robot object, estimate the egocentric spatial relationship
+from the robot's point of view (situated scene graph):
+  - estimated_distance_cm: approximate distance from the robot to the object
+    in centimeters (use the overhead view to gauge — e.g. objects touching the
+    robot are ~5cm, objects at opposite edges of the arena are ~150cm).
+  - direction_from_agent: one of "front", "front_left", "left", "behind_left",
+    "behind", "behind_right", "right", "front_right" — relative to the
+    robot's heading (shown by heading_estimate on the roclaw object).
+  - passby_objects: array of labels of OTHER objects that lie roughly between
+    the robot and this object. Empty array if the path is clear.
+
 Output ONLY valid JSON, no markdown fences, in this exact shape:
 {
   "objects": [
@@ -684,7 +695,10 @@ Output ONLY valid JSON, no markdown fences, in this exact shape:
     },
     {
       "label": "red cube",
-      "box_2d": [ymin, xmin, ymax, xmax]
+      "box_2d": [ymin, xmin, ymax, xmax],
+      "estimated_distance_cm": 45,
+      "direction_from_agent": "front_left",
+      "passby_objects": ["blue wall"]
     }
   ]
 }

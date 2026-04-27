@@ -97,10 +97,26 @@ Output ONLY the summary text (no JSON, no markdown headers).`,
  *   |------|-------|--------|--------|-------------|------------|
  *   | roclaw | RoClaw Robot | 45.0 | 100.0 | 0.0 | 1.00 |
  */
-export function serializeSceneGraph(graph: SceneGraph): string {
+export function serializeSceneGraph(graph: SceneGraph, format: 'markdown' | 'json' = 'markdown'): string {
   const nodes = graph.getAllNodes();
-  if (nodes.length === 0) return '(empty scene graph)';
+  if (nodes.length === 0) return format === 'json' ? '{"nodes":[]}' : '(empty scene graph)';
 
+  // JSON/Cartesian format — preferred for LLM spatial reasoning
+  // (Martorell et al. show JSON/Cartesian outperforms text for all model sizes)
+  if (format === 'json') {
+    const jsonNodes = nodes.map(node => ({
+      id: node.id,
+      label: node.label,
+      x_cm: Math.round(node.position[0] * 10) / 10,
+      y_cm: Math.round(node.position[1] * 10) / 10,
+      heading_deg: Math.round(node.getHeadingDegrees() * 10) / 10,
+      bbox: { w: node.boundingBox.w, h: node.boundingBox.h, d: node.boundingBox.d },
+      confidence: Math.round(node.confidence * 100) / 100,
+    }));
+    return JSON.stringify({ nodes: jsonNodes });
+  }
+
+  // Markdown table format — for human-readable traces
   const lines: string[] = [
     '| Node | Label | X (cm) | Y (cm) | Heading (°) | BBox (w×h×d) | Confidence |',
     '|------|-------|--------|--------|-------------|--------------|------------|',

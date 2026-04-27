@@ -307,3 +307,45 @@
 - **Severity:** medium
 - **Learned From:** 2026-04-26_execution_trace (No central record of deleted entities made follow-up reference audit difficult. A deleted_artifacts.md manifest would have enabled fast pattern searching and prioritization of cleanup work)
 - **Dream ID:** dream_20260426_exec_pruning_kernel_validation
+
+## Constraint 37
+- **Description:** Do not set distillation target model size below 8B parameters for tasks involving spatial reasoning -- Martorell (UBA/CONICET 2025, 2502.16690) proves sub-8B models perform at chance level on spatial navigation regardless of prompt format or spatial information representation
+- **Context:** VLM distillation planning, student model selection, roadmap planning, Qwen3-VL fine-tuning
+- **Severity:** high
+- **Learned From:** docs/strategic-analysis-2026-04-27.md (cross-referencing Martorell 2502.16690), docs/NEXT_STEPS.md section 1 (still targets Qwen3-VL-2B, contradicting paper evidence)
+- **Dream ID:** dream_20260427_a7f3
+
+## Constraint 38
+- **Description:** Do not document ISA version transitions as complete in architecture docs when ESP32 firmware has not been reflashed -- ARCHITECTURE.md must clearly distinguish between "implemented in host software" and "deployed end-to-end" to prevent operator confusion during debugging or hardware setup
+- **Context:** architecture documentation accuracy, ISA versioning, firmware deployment, documentation-code coherence
+- **Severity:** medium
+- **Learned From:** docs/ARCHITECTURE.md section 6 (documents ISA v2 8-byte frames as canonical) vs codebase reality (ISA v1 6-byte is still production on ESP32, V2 is implemented but not deployed)
+- **Dream ID:** dream_20260427_a7f3
+
+## Constraint 39
+- **Description:** Do not start autonomous exploration without a camera-availability check -- always validate camera connectivity before launching explore:autonomous to prevent systematic FAILURE traces that pollute the dream consolidation pipeline with non-actionable noise
+- **Context:** boot sequence design, camera initialization, trace quality, explore:autonomous, dream engine input quality
+- **Severity:** medium
+- **Learned From:** trace_2026-04-27.md (4 "Camera offline" FAILURE traces in single test session), trace_2026-04-16.md (same pattern), trace_2026-04-17.md (same pattern), trace_2026-04-15.md (same pattern). Recurring across 4+ days -- systematic, not transient
+- **Dream ID:** dream_20260427_a7f3
+
+## Constraint 40
+- **Description:** Do not accept VLM-estimated distances (estimated_distance_cm) without range validation in downstream consumers -- a value exceeding the arena diagonal (e.g., >500cm for a 300x200cm arena) should be clamped or discarded to prevent hallucinated distances from corrupting SceneGraph spatial reasoning
+- **Context:** VLM perception, egocentric spatial grounding, scene_response_parser, distance estimation, Spartun3D
+- **Severity:** medium
+- **Learned From:** docs/strategic-analysis-2026-04-27.md (Martorell P2: models below 8B perform near chance on spatial tasks; VLMs may hallucinate distances. Current parser in scene_response_parser.ts accepts any non-negative number without upper bound validation. Downstream consumers of estimated_distance_cm should clamp to arena-relative bounds.)
+- **Dream ID:** dream_20260427_a7f3_spatial
+
+## Constraint 41
+- **Description:** Do not add optional fields to VLM response schemas (estimated_distance_cm, direction_from_agent, passby_objects) without corresponding parser test coverage -- untested optional fields create silent regression vectors when the VLM prompt or response format changes
+- **Context:** scene_response_parser.ts test coverage, VLM JSON schema evolution, egocentric fields, Spartun3D integration
+- **Severity:** high
+- **Learned From:** __tests__/cerebellum/scene-response-parser.test.ts (current test file has zero assertions for estimated_distance_cm, direction_from_agent, or passby_objects despite these fields being fully implemented in scene_response_parser.ts lines 100-121. This repeats the anti-pattern documented in Constraint 20 for getTextSceneSystemPrompt)
+- **Dream ID:** dream_20260427_a7f3_spatial
+
+## Constraint 42
+- **Description:** Do not rely on VLM-estimated passby_objects without cross-referencing against the current SceneGraph node labels in downstream consumers -- hallucinated labels (e.g., "blue wall" when no blue wall exists in the graph) create phantom obstacles that distort path planning and collision avoidance
+- **Context:** VLM perception, passby_objects validation, SceneGraph consistency, situated scene graph, Spartun3D
+- **Severity:** medium
+- **Learned From:** docs/strategic-analysis-2026-04-27.md (Spartun3D P3 uses passby_objects to encode obstacles between agent and target; RoClaw's parser accepts arbitrary string arrays without SceneGraph cross-validation. Downstream consumers must filter passby labels against known graph nodes before using them for path planning.)
+- **Dream ID:** dream_20260427_a7f3_spatial

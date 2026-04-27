@@ -55,6 +55,11 @@ export interface ArenaConfig {
  * One detection from Gemini Robotics-ER 1.6's `box_2d` output. The normalized
  * tuple is [ymin, xmin, ymax, xmax], each in [0, 1000].
  */
+/** Egocentric direction from the robot (8-way compass relative to robot heading). */
+export type EgocentricDirection =
+  | 'front' | 'front_left' | 'left' | 'behind_left'
+  | 'behind' | 'behind_right' | 'right' | 'front_right';
+
 export interface GeminiObject {
   label: string;
   box_2d: [number, number, number, number];
@@ -63,6 +68,24 @@ export interface GeminiObject {
    * the projector will translate it to a degree heading on the arena frame.
    */
   heading_estimate?: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
+  /**
+   * VLM-estimated distance from the robot to this object in cm.
+   * Complements the projector's exact computation — can be used for
+   * cross-validation or as fallback when bbox precision is low.
+   * (Spartun3D-style egocentric spatial grounding.)
+   */
+  estimated_distance_cm?: number;
+  /**
+   * VLM-estimated egocentric direction from the robot to this object,
+   * relative to the robot's heading. 8-way compass.
+   * (Spartun3D-style egocentric spatial grounding.)
+   */
+  direction_from_agent?: EgocentricDirection;
+  /**
+   * Labels of objects that lie between the robot and this object.
+   * (Spartun3D situated scene graph — passby objects.)
+   */
+  passby_objects?: string[];
 }
 
 /** Pure-math projection result (no SceneGraph mutation). */

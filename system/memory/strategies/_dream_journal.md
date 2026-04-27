@@ -1,5 +1,61 @@
 # Dream Journal
 
+## 2026-04-27T23:45:00Z
+**Dream ID:** dream_20260427_a7f3
+**Mode:** goal-focused
+**Filter:** architecture documentation ARCHITECTURE.md update SceneGraphPolicy ReflexGuard Spartun3D roadmap next steps
+- Traces processed: 1 (trace_2026-04-27.md) + architecture documentation corpus (ARCHITECTURE.md, strategic-analysis-2026-04-27.md, NEXT_STEPS.md, source code changes)
+- Sequences analyzed: 3 (L2 architecture documentation update with research backing, L2 perception policy transition, L3 egocentric spatial grounding implementation)
+- Strategies created: 3 (L2x2: research-backed-architecture-documentation, perception-policy-transition; L3x1: egocentric-spatial-grounding)
+- Strategies updated: 0
+- Strategies deprecated: 0
+- Constraints learned: 3 (Constraints 37-39: 8B minimum for spatial distillation, ISA documentation accuracy, camera-ready boot check)
+- Traces pruned: 0 (goal-focused mode -- no pruning)
+
+This goal-focused dream session consolidated the architecture documentation update executed on 2026-04-27, which cross-referenced 4 peer-reviewed papers (Spartun3D ICLR 2025, NavGPT-2 ECCV 2024, Martorell UBA/CONICET 2025, Tehenan et al. 2025) against the RoClaw codebase to produce a comprehensive ARCHITECTURE.md with 8 Mermaid diagrams, a research-backed roadmap, and corresponding code changes. Three reusable strategies were extracted: (1) a methodology for research-backed architecture documentation that cross-references papers with codebase reality and idea storm proposals, (2) a perception policy transition pattern for moving from direct VLM motor control to scene-graph-mediated deterministic control (validated by all 4 papers), and (3) a tactical pattern for adding Spartun3D-style egocentric spatial grounding fields to the VLM pipeline. Three negative constraints were learned: Constraint 37 (high severity) captures the critical Martorell finding that sub-8B models fail at spatial reasoning, contradicting the NEXT_STEPS.md target of Qwen3-VL-2B; Constraint 38 (medium) addresses documentation-code coherence for ISA versioning; Constraint 39 (medium) addresses the recurring "Camera offline" FAILURE traces that pollute dream consolidation across 4+ days of test sessions.
+
+**Key Strategic Insight**: The architecture documentation update demonstrated that grounding architectural decisions in peer-reviewed research produces stronger design rationale, identifies contradictions between assumptions and evidence (the 2B vs 8B model size question), and creates a roadmap that is defensible rather than aspirational. The SceneGraphPolicy-as-default transition is the strongest-evidenced architectural decision in the project -- all 4 papers independently support separating VLM perception from motor policy.
+
+---
+
+## 2026-04-27T23:59:00Z
+**Dream ID:** dream_20260427_b3c9
+**Mode:** goal-focused
+**Filter:** auto-snapshot, trace collector, ReflexGuard, veto, TelemetryMonitor, stall, event wiring, sim3d_trace_collector, snapshotSceneGraph
+- Traces processed: 1 (trace_2026-04-27.md: 20 trace entries from test/real-world session)
+- Sequences analyzed: 6 (2 failure sequences with camera-offline cascades, 4 success sequences with navigation completion)
+- Strategies created: 2 (L2x1: progressive-safety-deployment; L3x1: event-driven-trace-snapshot)
+- Strategies updated: 1 (strat_2_dream-consolidation-loop v1->v2: added auto-capture step with event wiring)
+- Strategies deprecated: 0
+- Constraints learned: 0 (camera-readiness constraint already written by parallel dream_20260427_a7f3 as Constraint 39)
+- Traces pruned: 0 (goal-focused mode -- no pruning)
+
+This goal-focused dream session consolidated the EventEmitter event wiring pattern for automatic trace snapshot capture during navigation runs. The primary evidence came from the implemented code in sim3d_trace_collector.ts (snapshotSceneGraph API), reflex_guard.ts (three-mode progressive deployment with reflexStop/shadowVeto events), telemetry_monitor.ts (rising-edge stall detection), and the wiring code in run_sim3d.ts (lines 608-635) that connects all three event sources to the trace collector. The 2026-04-27 trace file provided 4 successful navigation sequences and 2 failure sequences (camera-offline race condition), while the strategic-analysis-2026-04-27.md explicitly identifies auto-snapshot (Section 8, T1.4) as Milestone M1 of the Continuous Dream Consolidation Flywheel.
+
+**Key Strategic Insight**: The event-driven trace snapshot pattern closes a critical gap in the dream consolidation loop. Previously, trace generation required manual invocation or post-hoc processing. With EventEmitter wiring, every ReflexGuard veto, TelemetryMonitor stall, VisionLoop arrival/stuck/timeout event automatically captures a scene graph snapshot with a descriptive moment tag. This means the dream engine receives spatially-contextualized failure data automatically, without operator intervention. The pattern follows a three-layer architecture: (1) event sources (VisionLoop, ReflexGuard, TelemetryMonitor) emit typed events, (2) Sim3DTraceCollector subscribes and snapshots, (3) dream engine processes the tagged snapshots differentially (veto snapshots inform SWS failure analysis, arrival snapshots inform REM success abstraction).
+
+**Parallel Dream Coordination**: A concurrent dream session (dream_20260427_a7f3) already processed the same trace file and strategic analysis document, extracting architecture documentation strategies and constraints 37-39. This session (dream_20260427_b3c9) focused exclusively on the event wiring pattern and produced complementary, non-overlapping strategies. No constraint duplication occurred because Constraint 39 (camera-readiness boot check) was already written by the parallel session.
+
+---
+
+## 2026-04-27T23:59:30Z
+**Dream ID:** dream_20260427_a7f3_spatial
+**Mode:** goal-focused
+**Filter:** Spartun3D egocentric spatial grounding distance estimation direction_from_agent passby_objects VLM prompt scene_response_parser vision_projector
+- Traces processed: 2 (docs/strategic-analysis-2026-04-27.md as synthesized trace, source code evidence across scene_response_parser.ts + vision_projector.ts + bytecode_compiler.ts)
+- Sequences analyzed: 3 (L2 situated scene graph architecture, L3 egocentric perception pipeline, L3 safe optional field parsing)
+- Strategies created: 3 (L2x1: situated-scene-graph-architecture; L3x2: egocentric-spatial-perception-pipeline, safe-vlm-optional-field-parsing)
+- Strategies updated: 0
+- Strategies deprecated: 0
+- Constraints learned: 3 (Constraints 40-42: distance range validation, optional field test coverage, passby_objects cross-reference)
+- Traces pruned: 0 (goal-focused mode -- no pruning)
+
+This goal-focused dream session consolidated the Spartun3D-style egocentric spatial grounding implementation pattern across the RoClaw VLM perception pipeline. The session analyzed the strategic analysis document (2026-04-27) which cross-referenced 4 peer-reviewed papers with the codebase, plus the actual code changes that added three egocentric fields (estimated_distance_cm, direction_from_agent, passby_objects) to the GeminiObject interface, OVERHEAD_SCENE_PROMPT, and scene_response_parser. Three reusable strategies were extracted covering the architecture (L2), the implementation pipeline (L3), and the safe parsing pattern (L3). The SWS phase identified a critical test coverage gap: scene-response-parser.test.ts has zero assertions for the three egocentric fields despite full implementation in the parser. Three constraints (40-42) address distance range validation, optional field test coverage, and passby_objects label cross-referencing.
+
+**Integration with Parallel Dreams (a7f3, b3c9):** Dream a7f3 focused on architecture documentation and model selection constraints. Dream b3c9 focused on event-driven trace snapshots. This dream (a7f3_spatial) zooms into the IMPLEMENTATION PATTERN for egocentric spatial fields, extracting the reusable coding pattern (type system, prompt engineering, never-throw parser, test requirements) and formalizing the VLM-as-perceiver architecture with full research evidence from 4 papers.
+
+---
+
 ## 2026-04-26T23:00:00Z
 **Dream ID:** dream_20260426_exec_pruning_kernel_validation
 **Mode:** goal-focused (per-agent parallel)

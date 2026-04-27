@@ -308,13 +308,15 @@ export class Sim3DTraceCollector {
   };
 
   // ---------------------------------------------------------------------------
-  // Private helpers
+  // Public snapshot API
   // ---------------------------------------------------------------------------
 
   /**
    * Snapshot the current SceneGraph state at a key moment.
+   * Called internally on arrival/stuck/timeout, and externally for
+   * ReflexGuard vetoes and TelemetryMonitor stall events.
    */
-  private snapshotSceneGraph(moment: string): void {
+  snapshotSceneGraph(moment: string): void {
     if (!this.sceneGraph) return;
     const nodeCount = this.sceneGraph.size() - 1; // exclude robot
     const collisionsPredicted = countCollisionPredictions(this.sceneGraph);

@@ -10,14 +10,20 @@
  * {
  *   "objects": [
  *     { "label": "roclaw", "box_2d": [ymin, xmin, ymax, xmax], "heading_estimate": "RIGHT" },
- *     { "label": "red cube", "box_2d": [ymin, xmin, ymax, xmax] }
+ *     { "label": "red cube", "box_2d": [ymin, xmin, ymax, xmax],
+ *       "estimated_distance_cm": 45, "direction_from_agent": "front_left" }
  *   ]
  * }
  * ```
  */
 
-import type { GeminiObject } from './vision_projector';
+import type { GeminiObject, EgocentricDirection } from './vision_projector';
 import { logger } from '../shared/logger';
+
+const VALID_DIRECTIONS: ReadonlySet<string> = new Set([
+  'front', 'front_left', 'left', 'behind_left',
+  'behind', 'behind_right', 'right', 'front_right',
+]);
 
 /**
  * Parse a Gemini scene response string into validated GeminiObject[].
@@ -88,6 +94,29 @@ export function parseGeminiSceneResponse(text: string): GeminiObject[] {
       const he = o.heading_estimate.toUpperCase() as GeminiObject['heading_estimate'];
       if (he === 'UP' || he === 'DOWN' || he === 'LEFT' || he === 'RIGHT') {
         result.heading_estimate = he;
+      }
+    }
+
+    // estimated_distance_cm is optional (Spartun3D-style egocentric grounding)
+    if (typeof o.estimated_distance_cm === 'number' && Number.isFinite(o.estimated_distance_cm) && o.estimated_distance_cm >= 0) {
+      result.estimated_distance_cm = o.estimated_distance_cm;
+    }
+
+    // direction_from_agent is optional (Spartun3D-style egocentric grounding)
+    if (typeof o.direction_from_agent === 'string') {
+      const dir = o.direction_from_agent.toLowerCase();
+      if (VALID_DIRECTIONS.has(dir)) {
+        result.direction_from_agent = dir as EgocentricDirection;
+      }
+    }
+
+    // passby_objects is optional (Spartun3D situated scene graph)
+    if (Array.isArray(o.passby_objects)) {
+      const valid = o.passby_objects
+        .filter((v: unknown): v is string => typeof v === 'string' && v.trim().length > 0)
+        .map((v: string) => v.trim());
+      if (valid.length > 0) {
+        result.passby_objects = valid;
       }
     }
 

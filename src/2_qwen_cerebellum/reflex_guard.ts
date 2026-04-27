@@ -332,11 +332,12 @@ function motionDirection(opcode: number): MotionDirection {
 
 function readModeFromEnv(): ReflexMode {
   const v = process.env[ENV_VAR];
-  if (v === undefined) return 'shadow';
+  if (v === undefined) return 'active';  // Default: active enforcement (was 'shadow' pre-2026-04-27)
   const norm = v.trim().toLowerCase();
   if (norm === '1' || norm === 'true' || norm === 'active') return 'active';
   if (norm === '0' || norm === 'false' || norm === 'disabled') return 'disabled';
-  return 'shadow';
+  if (norm === 'shadow') return 'shadow';
+  return 'active';
 }
 
 function round2(n: number): number {

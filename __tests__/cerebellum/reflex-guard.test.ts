@@ -70,8 +70,8 @@ describe('ReflexGuard — mode resolution', () => {
   });
 
   const cases: Array<[string | undefined, ReflexMode]> = [
-    [undefined, 'shadow'],
-    ['', 'shadow'],
+    [undefined, 'active'],    // Default: active enforcement (changed 2026-04-27)
+    ['', 'active'],           // Empty string → default (active)
     ['shadow', 'shadow'],
     ['1', 'active'],
     ['true', 'active'],
@@ -79,7 +79,7 @@ describe('ReflexGuard — mode resolution', () => {
     ['0', 'disabled'],
     ['false', 'disabled'],
     ['DISABLED', 'disabled'],
-    ['garbage', 'shadow'],
+    ['garbage', 'active'],    // Unrecognized → default (active)
   ];
   test.each(cases)('env=%j → mode=%s', (env, expected) => {
     if (env === undefined) delete process.env.RF_REFLEX_ENABLED;

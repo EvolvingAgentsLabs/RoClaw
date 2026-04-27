@@ -74,7 +74,7 @@ let serveMode = false;
 let servePort = 8440;
 let collectTraces = true;
 let describeScene = false;
-let useSceneGraphPolicy = process.env.RF_POLICY === 'scene_graph';
+let useSceneGraphPolicy = process.env.RF_POLICY !== 'legacy_motor';
 let scenarioId: string | undefined;
 
 const args = process.argv.slice(2);
@@ -111,7 +111,10 @@ for (let i = 0; i < args.length; i++) {
       describeScene = true;
       break;
     case '--scene-graph':
-      useSceneGraphPolicy = true;
+      useSceneGraphPolicy = true; // Now the default — kept for backwards compat
+      break;
+    case '--legacy-motor':
+      useSceneGraphPolicy = false; // Opt out of SceneGraphPolicy, use VLMMotorPolicy
       break;
     case '--scenario':
       scenarioId = args[++i] || '';
@@ -131,7 +134,8 @@ Options:
   --serve-port <port>   Port for the HTTP tool server (default: 8440)
   --no-traces           Disable trace file collection
   --describe-scene      Ask VLM to describe camera scenes as text (gap analysis)
-  --scene-graph         Use SceneGraphPolicy (VLM perceives, local controller decides)
+  --scene-graph         Use SceneGraphPolicy (default — kept for backwards compat)
+  --legacy-motor        Use VLMMotorPolicy instead of SceneGraphPolicy
   --help                Show this help message
 
 Scenarios:
@@ -368,12 +372,15 @@ async function main(): Promise<void> {
     logger.info('Sim3D', 'Shadow Perception Loop enabled (RF_PERCEPTION_SHADOW=1)');
   }
 
-  // 6d. Reflex Guard (shadow or active depending on env)
-  if (process.env.RF_REFLEX_ENABLED || process.env.RF_PERCEPTION_SHADOW === '1') {
+  // 6d. Reflex Guard — auto-enabled with SceneGraphPolicy (active enforcement)
+  //     Also enabled via RF_REFLEX_ENABLED or RF_PERCEPTION_SHADOW env vars.
+  //     Set RF_REFLEX_ENABLED=disabled to force off.
+  let reflexGuard: ReflexGuard | undefined;
+  if (useSceneGraphPolicy || process.env.RF_REFLEX_ENABLED || process.env.RF_PERCEPTION_SHADOW === '1') {
     sceneGraph = sceneGraph ?? new SceneGraph();
     const reflexMode = useSceneGraphPolicy ? 'active' as const : 'shadow' as const;
-    const guard = new ReflexGuard(sceneGraph, { mode: reflexMode });
-    const detach = attachReflexGuard(transmitter, guard);
+    reflexGuard = new ReflexGuard(sceneGraph, { mode: reflexMode });
+    const detach = attachReflexGuard(transmitter, reflexGuard);
     logger.info('Sim3D', `Reflex Guard attached (mode: ${reflexMode})`);
   }
 
@@ -393,7 +400,8 @@ async function main(): Promise<void> {
     visionLoop.setPolicy(sgPolicy);
     logger.info('Sim3D', `SceneGraphPolicy active (model: ${geminiModel})`);
   } else if (useSceneGraphPolicy && !useGemini) {
-    logger.warn('Sim3D', '--scene-graph requires --gemini (Gemini API key needed for perception inference)');
+    logger.warn('Sim3D', 'SceneGraphPolicy (default) requires --gemini — falling back to VLMMotorPolicy. Use --legacy-motor to suppress this warning.');
+    useSceneGraphPolicy = false;
   }
 
   // 6. Build ToolContext and dispatch via handleTool
@@ -605,6 +613,24 @@ async function main(): Promise<void> {
     // Also track physics-confirmed arrival in the collector
     visionLoop.on('arrival', (reason: string) => {
       traceCollector?.setOutcome(TraceOutcome.SUCCESS, typeof reason === 'string' ? reason : 'Arrival');
+    });
+
+    // Auto-snapshot on ReflexGuard veto events (T1.4)
+    if (reflexGuard) {
+      reflexGuard.on('reflexStop', ({ decision }: { decision: { obstacleLabel?: string } }) => {
+        const label = decision.obstacleLabel ?? 'unknown';
+        traceCollector?.snapshotSceneGraph(`reflex_veto:${label}`);
+        logger.info('TraceCollector', `Auto-snapshot on reflex veto (obstacle: ${label})`);
+      });
+      reflexGuard.on('shadowVeto', ({ decision }: { decision: { obstacleLabel?: string } }) => {
+        traceCollector?.snapshotSceneGraph(`shadow_veto:${decision.obstacleLabel ?? 'unknown'}`);
+      });
+    }
+
+    // Auto-snapshot on TelemetryMonitor stall events (T1.4)
+    telemetryMonitor.on('stall', () => {
+      traceCollector?.snapshotSceneGraph('telemetry_stall');
+      logger.info('TraceCollector', 'Auto-snapshot on telemetry stall');
     });
   }
 
