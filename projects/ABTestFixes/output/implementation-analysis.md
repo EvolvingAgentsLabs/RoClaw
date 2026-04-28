@@ -27,7 +27,7 @@ The stuck detector also fires in Room Exploration (19-24 frames) and Doorway Nav
 
 Replace the opcode-identity-based stuck detection with a **spatial-progress-based** stuck detection. A robot is only stuck if it is repeating the same opcode AND not making spatial progress (position change below a threshold). Additionally, add a dedicated oscillation detector (see Issue 2).
 
-**File:** `/Users/agustinazwiener/RoClaw/src/3_llmunix_memory/dream_simulator/scenario_runner.ts`
+**File:** `/Users/agustinazwiener/evolvingagents/skillos_robot/src/3_llmunix_memory/dream_simulator/scenario_runner.ts`
 
 Replace lines 88-95 (constructor fields):
 
@@ -155,7 +155,7 @@ Three changes: (a) add oscillation detection to the scenario runner, (b) add an 
 
 #### Change A: Oscillation detection in the scenario runner
 
-**File:** `/Users/agustinazwiener/RoClaw/src/3_llmunix_memory/dream_simulator/scenario_runner.ts`
+**File:** `/Users/agustinazwiener/evolvingagents/skillos_robot/src/3_llmunix_memory/dream_simulator/scenario_runner.ts`
 
 Add oscillation tracking variables after the existing stuck detection variables (around line 129):
 
@@ -243,7 +243,7 @@ Store `oscillationCount` in `ScenarioResult` and `FrameLogEntry` for downstream 
 
 #### Change B: Oscillation warning in user message
 
-**File:** `/Users/agustinazwiener/RoClaw/src/3_llmunix_memory/dream_simulator/scenario_runner.ts`
+**File:** `/Users/agustinazwiener/evolvingagents/skillos_robot/src/3_llmunix_memory/dream_simulator/scenario_runner.ts`
 
 In `buildUserMessage()`, after the existing stuck warning (line 358-363), add oscillation detection:
 
@@ -261,7 +261,7 @@ if (recentFrames.length >= 4) {
 
 #### Change C: Anti-oscillation rules in system prompt
 
-**File:** `/Users/agustinazwiener/RoClaw/src/2_qwen_cerebellum/bytecode_compiler.ts`
+**File:** `/Users/agustinazwiener/evolvingagents/skillos_robot/src/2_qwen_cerebellum/bytecode_compiler.ts`
 
 Move the critical constraints section higher in the prompt (right after DECISION PROCESS, before the few-shot examples), and add explicit anti-oscillation rules. Replace the `CRITICAL CONSTRAINTS` section:
 
@@ -324,7 +324,7 @@ Three changes: (a) restructure the scene output to put decision-critical data fi
 
 #### Change A: Restructure scene output -- decision data FIRST
 
-**File:** `/Users/agustinazwiener/RoClaw/src/3_llmunix_memory/dream_simulator/text_scene.ts`
+**File:** `/Users/agustinazwiener/evolvingagents/skillos_robot/src/3_llmunix_memory/dream_simulator/text_scene.ts`
 
 In the `describeScene()` method, reverse the order of the two passes so SPATIAL ANALYSIS comes first:
 
@@ -425,7 +425,7 @@ Key changes:
 
 #### Change B: Simplify system prompt for flash-lite
 
-**File:** `/Users/agustinazwiener/RoClaw/src/2_qwen_cerebellum/bytecode_compiler.ts`
+**File:** `/Users/agustinazwiener/evolvingagents/skillos_robot/src/2_qwen_cerebellum/bytecode_compiler.ts`
 
 Replace `TEXT_SCENE_SYSTEM_PROMPT` with a shorter, more directive version:
 

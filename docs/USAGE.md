@@ -31,8 +31,8 @@
 ```
 
 ```bash
-git clone https://github.com/EvolvingAgentsLabs/RoClaw.git
-cd RoClaw
+git clone https://github.com/EvolvingAgentsLabs/skillos_robot.git
+cd skillos_robot
 npm install
 cp .env.example .env   # edit GEMINI_API_KEY + ROBOT_IP if you have them
 ```

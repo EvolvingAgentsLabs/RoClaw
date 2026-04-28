@@ -7,7 +7,7 @@ trigger_goals: ["self-improving systems", "flywheel closure", "trace promotion",
 preconditions:
   - "System has working trace logging (RoClaw: YAML+markdown traces)"
   - "System has working dream consolidation (skillos: SWS/REM/Consolidation phases)"
-  - "System has strategy persistence (RoClaw/skillos: markdown strategy files)"
+  - "System has strategy persistence (skillos_robot/skillos: markdown strategy files)"
   - "Kernel platform exists (llm_os: runtime + cartridge system)"
   - "Model fine-tuning pipeline exists (llama.cpp or equivalent)"
 confidence: 0.65

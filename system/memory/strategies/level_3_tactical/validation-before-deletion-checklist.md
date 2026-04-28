@@ -132,7 +132,7 @@ Before deleting files or APIs, execute a systematic validation checklist to catc
 Deletion candidates: agent_runtime.py, system/agents/, system/tools/, :8420 references
 
 Functional references found:
-- RoClaw/bridge.py line 12: import agent_runtime (FUNCTIONAL - must migrate)
+- skillos_robot/bridge.py line 12: import agent_runtime (FUNCTIONAL - must migrate)
 - skillos/CLAUDE.md line 45: agent_runtime.py example (DOC - defer to Phase 4)
 - QWEN.md line 87: :8420 server reference (DOC - defer to Phase 4)
 
@@ -142,7 +142,7 @@ Risk assessment: HIGH (multiple functional callers found)
 
 **Phase 2 Preparation**:
 ```
-RoClaw/bridge.py migrated to direct import
+skillos_robot/bridge.py migrated to direct import
 Tests updated to not mock agent_runtime
 agent_runtime.py deleted safely in Phase 3
 ```

@@ -324,17 +324,17 @@ projects/GeminiCore/output/{text-model}/ab-test-report-{date}.md
 
 | File | Role |
 |------|------|
-| `/Users/agustinazwiener/RoClaw/scripts/ab_test_real.ts` | A/B test runner script (hardcodes flash-lite on line 277) |
-| `/Users/agustinazwiener/RoClaw/src/3_llmunix_memory/dream_simulator/dream_inference_router.ts` | Dual-model routing (text vs image) |
-| `/Users/agustinazwiener/RoClaw/src/3_llmunix_memory/dream_simulator/scenario_runner.ts` | Scenario execution with stuck detection (threshold=6, maxRetries=3) |
-| `/Users/agustinazwiener/RoClaw/src/3_llmunix_memory/dream_simulator/text_scene.ts` | Two-pass scene renderer (SCENE PERCEPTION + SPATIAL ANALYSIS) |
-| `/Users/agustinazwiener/RoClaw/src/2_qwen_cerebellum/gemini_robotics.ts` | Gemini API adapter (default model: gemini-robotics-er-1.5-preview) |
-| `/Users/agustinazwiener/RoClaw/src/llmunix-core/dream_engine.ts` | Three-phase dream consolidation with fidelity weighting |
-| `/Users/agustinazwiener/RoClaw/src/llmunix-core/types.ts` | TraceSource enum, TRACE_FIDELITY_WEIGHTS, NegativeConstraint type |
-| `/Users/agustinazwiener/RoClaw/src/3_llmunix_memory/roclaw_dream_adapter.ts` | Domain adapter for dream engine (bytecode RLE, LLM prompts) |
-| `/Users/agustinazwiener/RoClaw/system/memory/strategies/_negative_constraints.md` | Current 11 negative constraints |
-| `/Users/agustinazwiener/RoClaw/__tests__/ab-tests/cognitive-stack-ab.test.ts` | Mock A/B test (22 tests, deterministic, all passing) |
-| `/Users/agustinazwiener/RoClaw/projects/GeminiCore/output/ab-test-report-2026-03-12.md` | Most recent real A/B test report (0/5) |
-| `/Users/agustinazwiener/RoClaw/projects/GeminiCore/output/ab-test-report-2026-03-11.md` | First real A/B test report (0/5) |
-| `/Users/agustinazwiener/RoClaw/src/3_llmunix_memory/traces/ab-baseline/trace_2026-03-11.md` | Baseline traces (premature STOP pattern) |
-| `/Users/agustinazwiener/RoClaw/src/3_llmunix_memory/traces/ab-fullstack/trace_2026-03-12.md` | Fullstack traces (oscillation pattern) |
+| `/Users/agustinazwiener/evolvingagents/skillos_robot/scripts/ab_test_real.ts` | A/B test runner script (hardcodes flash-lite on line 277) |
+| `/Users/agustinazwiener/evolvingagents/skillos_robot/src/3_llmunix_memory/dream_simulator/dream_inference_router.ts` | Dual-model routing (text vs image) |
+| `/Users/agustinazwiener/evolvingagents/skillos_robot/src/3_llmunix_memory/dream_simulator/scenario_runner.ts` | Scenario execution with stuck detection (threshold=6, maxRetries=3) |
+| `/Users/agustinazwiener/evolvingagents/skillos_robot/src/3_llmunix_memory/dream_simulator/text_scene.ts` | Two-pass scene renderer (SCENE PERCEPTION + SPATIAL ANALYSIS) |
+| `/Users/agustinazwiener/evolvingagents/skillos_robot/src/2_qwen_cerebellum/gemini_robotics.ts` | Gemini API adapter (default model: gemini-robotics-er-1.5-preview) |
+| `/Users/agustinazwiener/evolvingagents/skillos_robot/src/llmunix-core/dream_engine.ts` | Three-phase dream consolidation with fidelity weighting |
+| `/Users/agustinazwiener/evolvingagents/skillos_robot/src/llmunix-core/types.ts` | TraceSource enum, TRACE_FIDELITY_WEIGHTS, NegativeConstraint type |
+| `/Users/agustinazwiener/evolvingagents/skillos_robot/src/3_llmunix_memory/roclaw_dream_adapter.ts` | Domain adapter for dream engine (bytecode RLE, LLM prompts) |
+| `/Users/agustinazwiener/evolvingagents/skillos_robot/system/memory/strategies/_negative_constraints.md` | Current 11 negative constraints |
+| `/Users/agustinazwiener/evolvingagents/skillos_robot/__tests__/ab-tests/cognitive-stack-ab.test.ts` | Mock A/B test (22 tests, deterministic, all passing) |
+| `/Users/agustinazwiener/evolvingagents/skillos_robot/projects/GeminiCore/output/ab-test-report-2026-03-12.md` | Most recent real A/B test report (0/5) |
+| `/Users/agustinazwiener/evolvingagents/skillos_robot/projects/GeminiCore/output/ab-test-report-2026-03-11.md` | First real A/B test report (0/5) |
+| `/Users/agustinazwiener/evolvingagents/skillos_robot/src/3_llmunix_memory/traces/ab-baseline/trace_2026-03-11.md` | Baseline traces (premature STOP pattern) |
+| `/Users/agustinazwiener/evolvingagents/skillos_robot/src/3_llmunix_memory/traces/ab-fullstack/trace_2026-03-12.md` | Fullstack traces (oscillation pattern) |

@@ -349,3 +349,66 @@
 - **Severity:** medium
 - **Learned From:** docs/strategic-analysis-2026-04-27.md (Spartun3D P3 uses passby_objects to encode obstacles between agent and target; RoClaw's parser accepts arbitrary string arrays without SceneGraph cross-validation. Downstream consumers must filter passby labels against known graph nodes before using them for path planning.)
 - **Dream ID:** dream_20260427_a7f3_spatial
+
+## Constraint 43
+- **Description:** Do not consider multi-repo changes "done" after editing code -- always run the type-checker/compiler for EACH affected repo (tsc --noEmit for TypeScript, svelte-check for Svelte, cargo check for Rust) AND test new CLI entry points (help commands, status commands) before declaring the change complete. Skipping per-repo validation after cross-cutting changes risks shipping type errors or broken entry points that only surface in CI or user-facing failures
+- **Context:** multi-repo changes, build validation, type checking, CLI entry points, tsc, svelte-check, cargo check, cross-cutting changes
+- **Severity:** high
+- **Learned From:** 2026-04-28 multi-repo build validation session (RoClaw tsc --noEmit clean, skillos_mini svelte-check 0 errors/4 pre-existing warnings, llm_os cargo check clean/4 pre-existing warnings, all 3 CLI scripts tested: robot help, trade help, llmos help+status)
+- **Dream ID:** dream_20260428_a3f7
+
+## Constraint 44
+- **Description:** Do not embed architecture diagrams (Mermaid, flowcharts, ASCII art, SVG banners) in README.md -- they belong in ARCHITECTURE.md. A README that duplicates architecture content creates maintenance drift between the two documents and overwhelms the quickstart purpose. The README is the pitch; ARCHITECTURE.md is the map.
+- **Context:** README structure, documentation separation, ARCHITECTURE.md, Mermaid diagrams, SVG banners, maintenance drift, terminal-first documentation
+- **Severity:** medium
+- **Learned From:** 2026-04-28 README simplification across 3 repos (RoClaw, skillos_mini, llm_os). Prior READMEs contained 300+ lines with SVG banners, Mermaid diagrams, and full architecture sections that duplicated ARCHITECTURE.md content. Rewriting to 60-80 line terminal-first format eliminated the drift risk entirely.
+- **Dream ID:** dream_20260428_a7f3
+
+## Constraint 45
+- **Description:** Do not exceed 80 lines in a README. A README that functions as a reference document has failed its primary purpose as a quickstart card. If the README is growing beyond 80 lines, technical depth is leaking in and should be moved to ARCHITECTURE.md, USAGE.md, or TUTORIAL.md. The target structure is: title (1 line) + pitch (2 lines) + Install (4-5 lines) + Use (15-20 lines) + How it works (5-10 lines) + Architecture links (5-8 lines) + License (2 lines).
+- **Context:** README length, documentation discipline, quickstart card, terminal-first format, documentation hierarchy
+- **Severity:** low
+- **Learned From:** 2026-04-28 README simplification across 3 repos. All three resulting READMEs (RoClaw 78 lines, skillos_mini 76 lines, llm_os 72 lines) fit comfortably under 80 lines while providing complete quickstart coverage. The pattern proves that 60-80 lines is sufficient for Install + Use + How it works + doc links.
+- **Dream ID:** dream_20260428_a7f3
+
+## Constraint 46
+- **Description:** Do not dispatch CLI subcommands to underlying tools without first verifying the tool binary exists on PATH -- a wrapper that silently fails because `npx`, `python3`, or `cargo` is missing creates a worse experience than running the underlying script directly, which would at least produce a shell "command not found" error. The wrapper must check prerequisites and produce an actionable install message (e.g., "python3 not found. Install via: brew install python@3.12")
+- **Context:** bin/ CLI wrappers, shell dispatcher, prerequisite validation, developer experience, cross-platform toolchain
+- **Severity:** medium
+- **Learned From:** dream_20260428_a7f3_cli (synthesized from CLI wrapper pattern analysis: analogous to Constraint 39 camera-readiness boot check -- both follow the "validate prerequisites before dispatch" anti-pattern)
+- **Dream ID:** dream_20260428_a7f3_cli
+
+## Constraint 47
+- **Description:** Do not build multi-screen navigation architectures (tabs, routes, screen state management) for single-purpose mobile apps where the core interaction is natural language task input -- a single terminal/chat interface with command prompt eliminates routing complexity, reduces maintenance surface, and maps directly to the user's mental model of "describe the task, get guidance"
+- **Context:** mobile app architecture, Svelte component design, trade-app UX, skillos_mini, product pivot UI decisions
+- **Severity:** medium
+- **Learned From:** tr_termshell_epic_refactor, tr_termshell_arch_simplification (skillos_mini App.svelte reduced from 191 lines with 5+ screen imports and tab navigation to 20 lines with single TerminalShell import; multi-screen architecture was overengineered for command-driven trade-app interaction model)
+- **Dream ID:** dream_20260428_c4e1
+
+## Constraint 48
+- **Description:** Do not accumulate UI components (HomeScreen, PhotoCapture, Onboarding, JobsList, TradeFlowSheet) that serve independent workflows when a product pivot has narrowed to a single interaction pattern -- unused screen components create dead code, inflate bundle size, and dilute development focus. Delete aggressively when the interaction model simplifies rather than deprecating gradually
+- **Context:** product pivot cleanup, dead UI code, Svelte component lifecycle, mobile bundle optimization, component deletion timing
+- **Severity:** medium
+- **Learned From:** tr_termshell_component_deletion (5 screen components deleted in single pass after TerminalShell replaced all their functionality; keeping them would have created the same reference debt documented in Constraints 29-36)
+- **Dream ID:** dream_20260428_c4e1
+
+## Constraint 49
+- **Description:** Do not assume Ollama's `/v1/chat/completions` endpoint is compatible with llm_os -- the daemon requires `/v1/completions` (raw text completions with per-request GBNF grammar injection). Ollama does not expose this endpoint. Always use llama-server directly for llm_os inference, or document the incompatibility prominently in onboarding materials.
+- **Context:** llm_os boot sequence, local inference setup, Hello World demo, developer onboarding, llama-server vs Ollama
+- **Severity:** medium
+- **Learned From:** tr_hello_world_004 (discovered during llm_os Hello World demo: Ollama's chat completions API lacks per-request grammar support required by llm_os ISA dispatch; llama-server provides `/v1/completions` natively with GBNF grammar parameter)
+- **Dream ID:** dream_20260428_a3f7
+
+## Constraint 50
+- **Description:** When adding a new ISA opcode, verify wiring through ALL dispatch layers in the Rust runtime -- not just grammar/isa.gbnf and parser, but also capability.rs opcode_string() match arm, iod.rs handle_statement() match arm, and DaemonConfig fields. A Rust build may succeed with a catch-all `_` arm or missing struct fields while silently dropping or misconfiguring the new opcode at runtime.
+- **Context:** llm_os runtime development, ISA opcode addition, Rust match arm exhaustiveness, dispatch chain completeness
+- **Severity:** high
+- **Learned From:** tr_hello_world_002 (llm_os Hello World demo: `State` opcode was added to parser but not wired through capability.rs opcode_string() and iod.rs handle_statement() match arms; DaemonConfig was also missing max_tokens_per_task and slot_id fields. All 5 issues compiled away silently until runtime)
+- **Dream ID:** dream_20260428_a3f7
+
+## Constraint 51
+- **Description:** Do not unify developer experience across only a subset of ecosystem repos -- if 3 of 4 repos follow the new convention (minimal README, CLI entry point, ARCHITECTURE.md delegation), the remaining repo creates cognitive dissonance for contributors who move between projects. When applying a cross-repo UX standard, apply it to ALL repos in the ecosystem or explicitly document the exception and schedule the remaining repo for alignment.
+- **Context:** multi-repo UX unification, portfolio convergence, developer experience consistency, README convention, CLI entry points, ecosystem branding
+- **Severity:** medium
+- **Learned From:** 2026-04-28 UX unification effort (RoClaw, skillos_mini, llm_os unified to minimal README + CLI + ARCHITECTURE.md pattern; skillos was excluded, retaining old verbose format with ASCII art banner, multiple runtime options, and no CLI entry point convention. The gap means developers switching between repos encounter two different documentation paradigms.)
+- **Dream ID:** dream_20260428_c4e7

@@ -202,8 +202,8 @@ export class CerebellumInference {
 
     // OpenRouter-specific headers
     if (this.config.apiBaseUrl.includes('openrouter.ai')) {
-      headers['HTTP-Referer'] = 'https://github.com/EvolvingAgentsLabs/RoClaw';
-      headers['X-Title'] = 'RoClaw Cerebellum';
+      headers['HTTP-Referer'] = 'https://github.com/EvolvingAgentsLabs/skillos_robot';
+      headers['X-Title'] = 'skillos_robot Cerebellum';
     }
 
     const body = JSON.stringify({

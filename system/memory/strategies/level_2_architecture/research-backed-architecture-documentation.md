@@ -1,14 +1,14 @@
 ---
 id: strat_2_research-backed-architecture-documentation
-version: 1
+version: 2
 hierarchy_level: 2
 title: Research-Backed Architecture Documentation Update
 trigger_goals: ["architecture documentation", "ARCHITECTURE.md", "research analysis", "paper review", "strategic analysis", "roadmap update", "codebase audit"]
 preconditions: ["Existing codebase with running code to audit", "Access to relevant peer-reviewed papers (arXiv, conference proceedings)", "Existing architecture documentation to update (or blank slate)", "Clear idea storm or improvement proposals to cross-reference"]
-confidence: 0.70
-success_count: 1
+confidence: 0.75
+success_count: 2
 failure_count: 0
-source_traces: ["docs/ARCHITECTURE.md_2026-04-27", "docs/strategic-analysis-2026-04-27.md"]
+source_traces: ["docs/ARCHITECTURE.md_2026-04-27", "docs/strategic-analysis-2026-04-27.md", "2026-04-28_readme_simplification_architecture_separation"]
 deprecated: false
 ---
 
@@ -41,3 +41,4 @@ A methodology for updating architecture documentation by cross-referencing peer-
 - The three-way comparison (proposal vs papers vs code) is the critical differentiator. Without it, documentation becomes either aspirational (ignoring code reality) or conservative (ignoring research opportunities).
 - Mermaid diagrams should use consistent theming across the entire document for visual coherence.
 - Time investment: approximately 4-6 hours for a thorough architecture doc update with 4 papers and 8 proposals. This amortizes well because the resulting document serves as the project's authoritative reference for months.
+- **Companion strategy (v2):** `strat_2_terminal-first-readme` defines the README format that complements this strategy's ARCHITECTURE.md format. Together they establish a clean separation: the README is the pitch (what + how to run), ARCHITECTURE.md is the map (every layer, every data path). When executing this strategy, ensure the README is simplified to match the terminal-first pattern, not expanded with architecture content. The 2026-04-28 README simplification across 3 repos validated that this separation eliminates maintenance drift between the two documents.

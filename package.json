@@ -1,9 +1,13 @@
 {
-  "name": "roclaw",
+  "name": "skillos_robot",
   "version": "0.1.0",
-  "description": "The Physical Embodiment for OpenClaw — Dual-Brain Bytecode Robot",
+  "description": "AI-powered robot navigation with vision language models",
   "main": "dist/index.js",
+  "bin": {
+    "robot": "./bin/robot"
+  },
   "scripts": {
+    "robot": "./bin/robot",
     "build": "tsc",
     "dev": "tsx src/index.ts",
     "sim": "tsx src/virtual_roclaw.ts",

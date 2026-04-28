@@ -1,17 +1,18 @@
 ---
 id: strat_1_multi_project_convergence_architecture
-version: 1
+version: 3
 hierarchy_level: 1
 title: Multi-Project Convergence via Layer-Cake Architecture
-trigger_goals: ["portfolio convergence", "multi-project architecture", "layer cake", "eliminate redundancy", "strategic integration"]
+trigger_goals: ["portfolio convergence", "multi-project architecture", "layer cake", "eliminate redundancy", "strategic integration", "UX unification", "developer experience", "ecosystem branding", "terminal-first", "unified CLI"]
 preconditions:
   - "4+ projects exist with overlapping capabilities (skillos, skillos_mini, RoClaw, llm_os)"
   - "Projects have diverged on interface standards, trace formats, and ISA definitions"
   - "Leadership has endorsed convergence as strategic priority"
-confidence: 0.75
-success_count: 1
+  - "Each project has a terminal-first CLI entry point"
+confidence: 0.85
+success_count: 3
 failure_count: 0
-source_traces: ["2026-04-26_strategic_analysis_trace"]
+source_traces: ["2026-04-26_strategic_analysis_trace", "dream_20260428_c4e7_ux_unification", "tr_hello_world_001"]
 deprecated: false
 ---
 
@@ -78,6 +79,35 @@ A `.gbnf` file defining the legal token sequences and opcode outputs the cartrid
 ### 4. Handler
 The executable logic: GBNF rules (llm_os), markdown spec (skillos), TypeScript (RoClaw bridge), or Rust (llm_os runtime).
 
+## UX Convergence (Completed 2026-04-28)
+
+The first convergence dimension to reach completion. Three of four repos (RoClaw, skillos_mini, llm_os) now share a unified developer experience:
+
+- **Minimal README** -- 60-80 line quickstart card following strat_3_minimal-readme-convention
+- **CLI entry point** -- Single-word command per project (`robot`, `trade`, `llmos`) following strat_2_cli-rebrand-unified-developer-experience
+- **Architecture delegation** -- Technical depth lives in ARCHITECTURE.md, not README
+- **Ecosystem branding** -- "Part of the Evolving Agents ecosystem" with cross-repo link
+- **Terminal-first interaction** -- Every README starts with shell examples, not prose
+
+**Gap:** skillos (Layer 1: Platform) has NOT been unified. Its README still uses the old verbose format with multiple runtime options, ASCII art banner, and 80+ lines of CLAUDE.md-style framework documentation. This must be addressed for full ecosystem coherence (see Constraint 51).
+
+## Terminal-First Convergence Point (Validated 2026-04-28)
+
+The convergence thesis has reached its concrete realization: **every project is a CLI command with the same UX pattern**. The terminal-first pivot supersedes the earlier mobile-UI focus for skillos_mini and establishes a unified interaction model across all layers:
+
+| Layer | CLI Command | Entry Point | Proves |
+|-------|-------------|-------------|--------|
+| Layer 0: Product | `trade` | skillos_mini TerminalShell | Product layer is terminal-first |
+| Layer 1: Platform | (pending) | skillos system-agent | Platform layer needs CLI wrapper |
+| Layer 2: Infrastructure | `llmos` | llm_os iod daemon | Infrastructure boots independently (Hello World validated) |
+| Layer 3: I/O | `robot` | RoClaw VLM brain | I/O layer dispatches motor commands |
+
+**Key validation:** The llm_os Hello World demo (tr_hello_world_001, 2026-04-27) proved that Layer 2 (Infrastructure) boots and passes 6/6 integration tests on macOS without any dependency on Layer 3 (RoClaw) or Layer 1 (skillos). This confirms the layers are correctly decoupled -- each can be developed, tested, and demonstrated independently.
+
+**Constraint acknowledgments:**
+- C22 (validate market fit before building features): User explicitly requested the terminal-first pivot despite this constraint. The pivot is architectural, not feature-driven.
+- C23 (prune dead code on pivot): Followed. Dead code paths from the mobile UI (HomeScreen, PhotoCapture, Onboarding, JobsList, TradeFlowSheet) were superseded by TerminalShell.
+
 ## The Convergence Roadmap
 
 ### Priority Tier 1 (Unblock Flywheel)
@@ -102,7 +132,7 @@ The executable logic: GBNF rules (llm_os), markdown spec (skillos), TypeScript (
 ```
 Real execution (RoClaw)
       ↓ (writes traces with unified format)
-Trace logs (RoClaw/system/memory/traces/)
+Trace logs (skillos_robot/system/memory/traces/)
       ↓ (read by skillos dream consolidation)
 Dream consolidation (skillos)
       ↓ (learns patterns, extracts strategies)
@@ -122,9 +152,11 @@ Better execution (RoClaw next attempt)
 | **Incompatible Traces** | Blocks dream learning | Standardize: Level field, YAML frontmatter, hierarchy |
 | **Over-Engineered Modes** | State corruption risk | Reduce llm_os modes from 4 → 2 |
 | **Premature Features** | Wasted engineering | Validate skillos_mini M1 before M2 features |
+| **Inconsistent UX** | Developer context-switching overhead | Unify all 4 repos to minimal README + CLI + ARCHITECTURE.md |
 
 ## Success Metrics
 
+- **UX unification:** 3/4 repos unified (DONE 2026-04-28). skillos remaining.
 - **Grammar swap deployment:** 8 Hz achieved on Pi 5 (target: 2026-05-15)
 - **M1 validation:** 5+ interviews completed, product-market fit confirmed (target: 2026-05-01)
 - **Trace standardization:** 100% of new traces conform to unified schema (target: 2026-04-30)
@@ -137,6 +169,9 @@ Better execution (RoClaw next attempt)
 - Constraint 24: ISA convergence is mandatory for cross-project learning
 - Constraint 25: Trace format must be standardized
 - Constraint 26: Reduce compilation modes to 2
+- Constraint 44: No architecture diagrams in README
+- Constraint 45: README under 80 lines
+- Constraint 51: UX unification must include all ecosystem repos
 
 ## Notes
 
