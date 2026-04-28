@@ -1,14 +1,4 @@
-<p align="center">
-  <img src="assets/banner-roadmap.svg" alt="NEXT STEPS — distill · simplify · evolve" width="100%"/>
-</p>
-
-<p align="center">
-  <strong>Roadmap</strong> &nbsp;//&nbsp; <code>RoClaw</code> &nbsp;//&nbsp; the next 90 days
-</p>
-
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
+# Roadmap
 
 > Strategic roadmap derived from the April 2026 architecture review. The
 > framing: RoClaw has proven that Gemini Robotics-ER can drive the cube
@@ -28,11 +18,8 @@
   └────────────────────────────────────────────────────────────────────┘
 ```
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §1 the immediate next step · close the distillation loop
+## Close the distillation loop
 
 > **Goal:** transition the default run mode from `--gemini` to
 > `--ollama` and prove the local Qwen3-VL-2B student can match the
@@ -94,16 +81,13 @@ flowchart LR
   └───────────────────────────────────────────────────────────────────┘
 ```
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §2 what to remove · simplification
+## What to remove
 
 To prepare for local autonomy, shed technical debt and parallel
 experiments that have served their purpose.
 
-### §2.A · deprecate `VLMMotorPolicy` · direct tool calling
+### Deprecate `VLMMotorPolicy`
 
 > **Why:** RoClaw currently has two paths: VLM → Tool Call → Motor, and
 > VLM → JSON → SceneGraph → Motor. The SceneGraph path is superior
@@ -141,7 +125,7 @@ option, the corresponding test fixtures. Update
 
 ---
 
-### §2.B · drop the text-only Dream Engine
+### Drop the text-only Dream Engine
 
 > **Why:** Fidelity weights accurately assign text-only dreams a 0.3
 > score because they lack visual grounding. The A/B test suite relies
@@ -177,7 +161,7 @@ training run skips them entirely).
 
 ---
 
-### §2.C · remove ISA v1 (6-byte) fallback
+### Remove ISA v1 (6-byte) fallback
 
 > **Why:** ISA v1.1 introduced the V2 (8-byte) frame with sequence
 > numbers and ACKs (SEQ + FLAGS). Reliable UDP is crucial for robotics.
@@ -208,7 +192,7 @@ and the `BytecodeCompiler` to expect exactly 8 bytes. Remove the
 
 ---
 
-### §2.D · prune ESP32 opcodes
+### Prune ESP32 opcodes
 
 > **Why:** The opcode table has accumulated. `MOVE_FORWARD` alongside
 > `MOVE_STEPS_L` / `MOVE_STEPS_R`, `GET_STATUS` despite a dedicated
@@ -233,16 +217,13 @@ telemetry broadcasts from the ESP32 for state.
 the firmware switch in `firmware.ino`, the corresponding tests, and
 the prompt examples in `agent_context.md`.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §3 what to evolve · improvements
+## What to evolve
 
 With the architecture simplified around the Scene Graph and V2
 bytecodes, focus on evolving these key systems.
 
-### §3.A · evolve telemetry · visual odometry + IMU fusion
+### Evolve telemetry
 
 > **Current:** Dead-reckoning relies on 28BYJ-48 stepper step counts.
 > These motors slip — `TelemetryMonitor` pose drifts quickly.
@@ -280,7 +261,7 @@ trace archive.
 
 ---
 
-### §3.B · evolve VisionProjection · monocular depth from 1st-person
+### Evolve VisionProjection
 
 > **Current:** Projecting a 2D bounding box to a 3D `SceneGraph` from
 > an overhead camera is easy. From a 1st-person ESP32-CAM, assuming
@@ -325,7 +306,7 @@ ground. SceneGraph projection error drops from ~25 cm to ~8 cm.
 
 ---
 
-### §3.C · evolve the dream consolidation flywheel · continuous
+### Evolve the dream consolidation flywheel
 
 > **Current:** `skillos` reads trace `.md` files manually and generates
 > new strategies / constraints.
@@ -370,11 +351,8 @@ trace archive becomes the canonical training set; new arenas
 contribute diversity by virtue of the operator simply running the
 robot.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §4 summary checklist
+## Summary checklist
 
 ```
   ┌─[ NEXT 90 DAYS ]──────────────────────────────────────────────┐
@@ -399,11 +377,8 @@ robot.
   └────────────────────────────────────────────────────────────────┘
 ```
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §5 what would explicitly **not** ship next
+## What would explicitly **not** ship next
 
 To keep this roadmap honest, here's what is *not* going to happen in
 the next 90 days even though it would be tempting:
@@ -421,14 +396,3 @@ the next 90 days even though it would be tempting:
 
 These belong in a future `BACKLOG.md` if they earn a place there.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
-
-<p align="center">
-  <img src="assets/mark.svg" alt="" width="48"/>
-</p>
-
-<p align="center">
-  <sub><code>// ROADMAP // §1 DISTILL · §2 SIMPLIFY · §3 EVOLVE</code></sub>
-</p>

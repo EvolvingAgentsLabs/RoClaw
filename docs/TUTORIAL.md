@@ -1,14 +1,4 @@
-<p align="center">
-  <img src="assets/banner-tutorial.svg" alt="TUTORIAL — build your first navigation scenario · 30 min" width="100%"/>
-</p>
-
-<p align="center">
-  <strong>Tutorial</strong> &nbsp;//&nbsp; build your first navigation scenario &nbsp;//&nbsp; <code>my-arena</code>
-</p>
-
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
+# Tutorial
 
 > 30-minute walkthrough. By the end you'll have a custom MuJoCo arena, a
 > bespoke ReflexGuard rule, a strategy file the cortex can retrieve, and
@@ -21,7 +11,7 @@ doorway. Same recipe scales to any scene.
 
 ---
 
-## ▸ §0 prerequisites
+## Prerequisites
 
 Make sure simulation runs at all first:
 
@@ -34,11 +24,8 @@ npm run sim:3d -- --gemini --goal "navigate to the red cube"
 
 If that works, you're ready.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §1 scaffold the project
+## Scaffold the project
 
 ```bash
 mkdir -p projects/my-arena/{scenes,strategies,traces}
@@ -58,11 +45,8 @@ projects/my-arena/
 └── traces/             # auto-populated as you run
 ```
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §2 author the arena · `arena.json`
+## Author the arena
 
 ```json
 {
@@ -105,11 +89,8 @@ projects/my-arena/
 `pose` is `[x_cm, y_cm, z_cm, yaw_deg]`. `static: true` means the
 object never moves and ReflexGuard treats it as a permanent obstacle.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §3 author the scene-graph priors · `scenes/office.json`
+## Author the scene-graph priors
 
 These are nodes the cortex *starts with* — useful labels we know at
 boot. The VLM still has to confirm them visually, but they bias the
@@ -141,11 +122,8 @@ planner toward known goals.
 Now the planner can resolve `"go to the kitchen"` → `doorway-K` by tag
 lookup before any VLM inference.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §4 author a strategy · `strategies/plan_around_desk.md`
+## Author a strategy
 
 ```markdown
 ---
@@ -180,11 +158,8 @@ The planner reads this file via `strategy_store.ts`. The
 text-only dreams (fidelity 0.3) won't be retrieved — only
 MuJoCo-validated and real-world ones.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §5 add a reflex rule · `reflex_rules.json`
+## Add a reflex rule
 
 By default ReflexGuard checks scene-graph nodes against a forward cone.
 Add an arena-specific rule to catch the desk early — even when the VLM
@@ -209,11 +184,8 @@ hasn't confirmed it yet.
 Now the guard has a deterministic obstacle to check against, even
 before the VLM has rendered a single frame.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §6 wire it into the runtime
+## Wire it into the runtime
 
 The runtime auto-discovers `projects/<name>/`. Tell it which one to use:
 
@@ -242,11 +214,8 @@ You should see in the log:
 ...
 ```
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §7 run it · success and failure
+## Run it
 
 ### success path
 
@@ -281,11 +250,8 @@ Without the strategy, the robot will stare straight at the doorway and
 collide with the desk (or trigger an active ReflexGuard veto). The
 trace logs `outcome: fail` with a `reflex_veto: 1` count.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §8 dream the failure into a strategy
+## Dream the failure into a strategy
 
 ```bash
 npm run dream:loop -- --project=projects/my-arena
@@ -321,11 +287,8 @@ Re-run the failing scenario. The new strategy is retrieved by the
 planner, the robot swerves, and the same dream loop now confirms a
 success trace.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §9 add a unit test
+## Add a unit test
 
 Even a tiny test means future contributors don't break your scene.
 
@@ -358,11 +321,8 @@ Run it:
 npm test -- my_arena.test.ts
 ```
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §10 commit
+## Commit
 
 ```bash
 git add projects/my-arena __tests__/my_arena.test.ts
@@ -377,11 +337,8 @@ Per the test conventions, every PR adding a new arena should:
 - ✅ include at least one trace (`outcome: success`) committed to
   `projects/<arena>/traces/`
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §11 what you've just built
+## What you've just built
 
 You added a fully working navigation scenario to RoClaw in under 30
 minutes, **without touching any of these things**:
@@ -399,11 +356,8 @@ Each new scenario also gives the **dream loop** more material to
 consolidate, so the local Qwen3-VL student gets stronger every night
 without any code changes.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §12 where to go next
+## Where to go next
 
 - [`USAGE.md`](USAGE.md) — operator guide for the modes you didn't try
   here (real hardware, shadow A/B, custom cameras).
@@ -412,14 +366,3 @@ without any code changes.
 - [`NEXT_STEPS.md`](NEXT_STEPS.md) — where the project goes after
   enough scenarios pile up. Spoiler: the cloud teacher gets retired.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
-
-<p align="center">
-  <img src="assets/mark.svg" alt="" width="48"/>
-</p>
-
-<p align="center">
-  <sub><code>// BUILD.SUCCESS // 12 STEPS · my-arena · MCP.CEREBELLUM</code></sub>
-</p>

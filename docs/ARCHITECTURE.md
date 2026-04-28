@@ -1,14 +1,4 @@
-<p align="center">
-  <img src="assets/banner-architecture.svg" alt="ARCHITECTURE" width="100%"/>
-</p>
-
-<p align="center">
-  <strong>RoClaw</strong> &nbsp;//&nbsp; software architecture &nbsp;//&nbsp; <code>cerebellum.runtime</code>
-</p>
-
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
+# Architecture
 
 > Companion to [`README.md`](../README.md). The README is the *pitch*
 > (what RoClaw is and how to run it). This doc is the *map* — every
@@ -16,7 +6,7 @@
 
 ---
 
-## ▸ §1 system overview · the cognitive trinity
+## System overview
 
 RoClaw is one of three repos that together form an embodied-AI stack:
 
@@ -64,11 +54,8 @@ re-enters the cerebellum (closed-loop control) and the cortex (memory
 formation). The reflex guard at L0 has direct authority to veto motor
 commands before they reach the bytecode compiler.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §2 the 5-tier stack
+## The 5-tier stack
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#001a14','primaryTextColor':'#bbf7d0','primaryBorderColor':'#00ff7f','lineColor':'#4ade80','secondaryColor':'#001a24','background':'#000','mainBkg':'#001a14','clusterBkg':'#000','clusterBorder':'#4ade80','edgeLabelBackground':'#000','fontFamily':'ui-monospace, monospace'}}}%%
@@ -135,11 +122,8 @@ flowchart TB
 The deeper the layer, the harder the determinism guarantee. The cortex
 can hallucinate; the reflex cannot.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §3 the perception → action loop
+## Perception-action loop
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#001a14','primaryTextColor':'#bbf7d0','primaryBorderColor':'#00ff7f','lineColor':'#4ade80','secondaryColor':'#001a24','background':'#000','mainBkg':'#001a14','actorBkg':'#001a14','actorBorder':'#00ff7f','actorTextColor':'#bbf7d0','signalColor':'#4ade80','signalTextColor':'#bbf7d0','noteBkgColor':'#001a24','noteTextColor':'#bff7ff','noteBorderColor':'#00d4ff','activationBkgColor':'#00ff7f','sequenceNumberColor':'#000','fontFamily':'ui-monospace, monospace'}}}%%
@@ -186,11 +170,8 @@ sequenceDiagram
 The cortex never sees the failed command path; it only sees the trace
 emitted afterward.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §4 perception policies · pluggable
+## Perception policies
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#001a14','primaryTextColor':'#bbf7d0','primaryBorderColor':'#00ff7f','lineColor':'#4ade80','secondaryColor':'#001a24','background':'#000','mainBkg':'#001a14','clusterBkg':'#000','clusterBorder':'#4ade80','edgeLabelBackground':'#000','fontFamily':'ui-monospace, monospace'}}}%%
@@ -249,11 +230,8 @@ and enable cross-validation, fallback, and richer scene understanding.
 `VLMMotorPolicy` stays in tree as a comparison baseline, marked for
 removal in [`NEXT_STEPS.md`](NEXT_STEPS.md) §2.A.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §5 the dream consolidation flywheel
+## Dream consolidation flywheel
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#001a14','primaryTextColor':'#bbf7d0','primaryBorderColor':'#00ff7f','lineColor':'#4ade80','secondaryColor':'#001a24','background':'#000','mainBkg':'#001a14','clusterBkg':'#000','clusterBorder':'#4ade80','edgeLabelBackground':'#000','fontFamily':'ui-monospace, monospace'}}}%%
@@ -289,11 +267,8 @@ Fidelity becomes the **sample weight** during LoRA fine-tuning, so the
 model never collapses to text-only patterns even when the trace volume
 skews toward dreams.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §6 ISA v2 · 8-byte UDP frame
+## ISA v2
 
 ```
 ┌──────┬──────┬──────┬──────┬──────┬──────┬──────┬──────┐
@@ -327,11 +302,8 @@ needed. See [`NEXT_STEPS.md §2.D`](NEXT_STEPS.md).
 - **FLG.bit0** = require_ack. If set and no ack within 80 ms, the host
   retransmits up to 3 times before raising a `network_lost` event.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §7 telemetry · today and tomorrow
+## Telemetry
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#001a14','primaryTextColor':'#bbf7d0','primaryBorderColor':'#00ff7f','lineColor':'#4ade80','secondaryColor':'#001a24','background':'#000','mainBkg':'#001a14','clusterBkg':'#000','clusterBorder':'#4ade80','edgeLabelBackground':'#000','fontFamily':'ui-monospace, monospace'}}}%%
@@ -361,11 +333,8 @@ The roadmap adds an IMU + visual-odometry fusion layer so the cortex
 can detect "wheels turning but robot stuck" — a class of failure that
 today emits a successful trace but a stationary robot.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §8 cross-cutting invariants
+## Cross-cutting invariants
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#001a14','primaryTextColor':'#bbf7d0','primaryBorderColor':'#00ff7f','lineColor':'#4ade80','background':'#000','mainBkg':'#001a14','edgeLabelBackground':'#000','fontFamily':'ui-monospace, monospace'}}}%%
@@ -386,11 +355,8 @@ flowchart LR
 - **All inference goes through `inference.ts`** — the abstraction over
   Gemini and Ollama. Swapping backends is a one-line change.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §9 file map
+## File map
 
 ```
 src/
@@ -429,11 +395,8 @@ src/
 └── mjswan_bridge.ts              ← MuJoCo HTTP/WebSocket bridge
 ```
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §10 recent changes (2026-04-27)
+## Recent changes (2026-04-27)
 
 Implemented from the [strategic analysis](strategic-analysis-2026-04-27.md),
 cross-referencing 4 peer-reviewed papers (Spartun3D ICLR 2025, NavGPT-2
@@ -456,7 +419,7 @@ ECCV 2024, Martorell UBA/CONICET 2025, Tehenan et al. 2025):
   compact `{x_cm, y_cm, heading_deg}` per node — optimal for LLM spatial
   reasoning per Martorell et al.
 
-## ▸ §11 next steps · research-backed roadmap
+## Next steps
 
 Priorities derived from the [strategic analysis](strategic-analysis-2026-04-27.md).
 Each item cites the paper that motivates it.
@@ -501,15 +464,3 @@ Each item cites the paper that motivates it.
    SceneGraphPolicy already follows this architecture.
 
 Full analysis: [`docs/strategic-analysis-2026-04-27.md`](strategic-analysis-2026-04-27.md).
-
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
-
-<p align="center">
-  <img src="assets/mark.svg" alt="" width="48"/>
-</p>
-
-<p align="center">
-  <sub><code>// ARCH.MAP // 5 TIERS · 8 DIAGRAMS · RESEARCH-BACKED ROADMAP</code></sub>
-</p>

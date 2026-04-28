@@ -1,14 +1,4 @@
-<p align="center">
-  <img src="assets/banner-usage.svg" alt="USAGE GUIDE — boot · scene · navigate · dream" width="100%"/>
-</p>
-
-<p align="center">
-  <strong>Operator's Guide</strong> &nbsp;//&nbsp; <code>RoClaw</code> &nbsp;//&nbsp; sim · hardware · dream
-</p>
-
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
+# Usage
 
 > Practical guide for someone driving the robot — in MuJoCo simulation
 > or on real ESP32-S3 hardware. If you're authoring a new scene or
@@ -18,7 +8,7 @@
 
 ---
 
-## ▸ §1 prerequisites
+## Prerequisites
 
 ```
   ┌─────────────────────────────────────────────────────────┐
@@ -37,11 +27,8 @@ npm install
 cp .env.example .env   # edit GEMINI_API_KEY + ROBOT_IP if you have them
 ```
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §2 modes at a glance
+## Modes at a glance
 
 ```
   ┌─────────────────────────────────────────────────────────────────────┐
@@ -61,11 +48,8 @@ cp .env.example .env   # edit GEMINI_API_KEY + ROBOT_IP if you have them
 | `--dream` | Same VLM but on rendered MuJoCo frames | 200–400 ms/frame | free |
 | `--shadow` | Both, side-by-side · only Gemini decisions sent | sum of both | metered |
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §3 simulation · MuJoCo arena
+## Simulation
 
 The fastest way to see RoClaw in action is the 3D simulation.
 
@@ -118,11 +102,8 @@ You'll see a streaming log:
 When the goal is reached (or fails), the run writes a markdown trace to
 `traces/sim3d/<timestamp>.md`.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §4 hardware · real cube
+## Hardware
 
 ### setup
 
@@ -167,11 +148,8 @@ npm run dev -- --ollama \
                 --goal "find the kitchen doorway"
 ```
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §5 the scene graph · queries
+## Scene graph
 
 Once a navigation has run, the scene graph persists in
 `projects/<arena>/scene_graph.json`. You can introspect it:
@@ -200,11 +178,8 @@ if (target) {
 }
 ```
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §6 trace files · the memory ledger
+## Trace files
 
 Every navigation produces one `.md` file. They're the canonical record
 of what the robot did.
@@ -246,11 +221,8 @@ trace_id: 2026-04-26-1542-a7f3
 These files are read by `skillos` for overnight consolidation. They
 become the training data for the next LoRA fine-tune.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §7 dream consolidation
+## Dream consolidation
 
 Run nightly:
 
@@ -287,11 +259,8 @@ You wake up to:
 - A fresh Qwen3-VL GGUF in Ollama, picked up automatically by
   `--ollama` runs.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §8 ReflexGuard · safety net
+## ReflexGuard
 
 ReflexGuard runs at L0. It looks at:
 - Scene graph obstacles within a forward cone (configurable, default
@@ -326,11 +295,8 @@ A node in the scene graph below `MIN_CONFIDENCE` is ignored by the
 guard — i.e. the guard only blocks for things the perception is sure
 about.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §9 troubleshooting
+## Troubleshooting
 
 ### "the robot just spins"
 
@@ -376,11 +342,8 @@ If `phantom_obstacle` is bogus (often happens when the VLM mis-labels
 shadows as objects), reduce `MIN_CONFIDENCE` so low-confidence nodes
 don't trigger vetoes.
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
 
-## ▸ §10 quick reference
+## Quick reference
 
 ```
   ┌─[ COMMANDS ]──────────────────────────────────────────────────────┐
@@ -399,14 +362,3 @@ don't trigger vetoes.
 
 Now go author your own scene → [`TUTORIAL.md`](TUTORIAL.md).
 
-<p align="center">
-  <img src="assets/divider.svg" alt="" width="100%"/>
-</p>
-
-<p align="center">
-  <img src="assets/mark.svg" alt="" width="48"/>
-</p>
-
-<p align="center">
-  <sub><code>// USAGE.GUIDE // SIM · HARDWARE · DREAM</code></sub>
-</p>
