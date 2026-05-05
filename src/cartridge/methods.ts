@@ -26,27 +26,65 @@ export type MethodImpl = (
 ) => Promise<CartridgeResult>;
 
 // ── navigate ──────────────────────────────────────────────────────
-// TODO: integrate with src/brain/planning/planner.ts. The planner today
-// is invoked synchronously from index.ts startup; needs to be refactored
-// to accept a goal at runtime and emit progress events.
+// Calls HierarchicalPlanner.planGoal() to decompose the NL goal into
+// PlanSteps. Returns the plan as the cartridge result.
+//
+// IMPORTANT — Plan EXECUTION is the integrator's responsibility, not
+// this cartridge's. The reactive loop reads its own goal and runs
+// independently at 20Hz; coupling cartridge calls to plan completion
+// would require fundamental refactors of the reactive loop's lifecycle
+// and is intentionally out of scope here. Pattern for the integrator:
+//   1. Cartridge call returns the plan.
+//   2. Integrator feeds steps into the reactive loop's goal queue.
+//   3. Reactive loop executes; integrator emits progress via the
+//      adapter's emit channel and resolves a separate result message
+//      when execution completes (or use a follow-up `await_done` call).
 const navigate: MethodImpl = async (args, ctx, reqId) => {
   const goal = String(args.goal ?? '').trim();
   if (!goal) return makeError(reqId, ERR.INVALID_ARGS, 'navigate requires args.goal (string)');
-
-  const timeoutS = typeof args.timeout_s === 'number' ? args.timeout_s : 60;
   const policy = args.policy === 'fast' ? 'fast' : 'safe';
 
-  ctx.emit({ phase: 'planning', goal });
-  // TODO: const plan = await planner.run({ goal, policy });
-  // Stub: pretend planning takes 1 step and emit progress.
-  await new Promise(r => setTimeout(r, 50));
-  if (ctx.cancelled()) return makeError(reqId, ERR.INTERNAL, 'cancelled');
+  const { planner, sceneGraph } = getRobotState();
+  if (!planner) {
+    return makeError(reqId, ERR.HARDWARE_UNAVAILABLE,
+      'HierarchicalPlanner not registered. Integrator must call setRobotState({planner}) with the live planner instance.');
+  }
 
-  ctx.emit({ phase: 'executing', steps: 1 });
-  // TODO: const trace = await reactiveLoop.executePlan(plan, { timeoutS });
-  // Stub: return a plausible result shape.
-  return makeError(reqId, ERR.NOT_IMPLEMENTED,
-    'navigate is scaffolded — wire to brain/planning/planner.ts and control/reactive_loop.ts');
+  ctx.emit({ phase: 'planning', goal, policy });
+
+  // Build a brief scene snapshot for the planner if a SceneGraph is registered.
+  let sceneSummary: string | undefined;
+  if (sceneGraph) {
+    const obstacles = sceneGraph.getObstacles();
+    sceneSummary = obstacles.length === 0
+      ? 'Empty scene'
+      : `${obstacles.length} object(s) tracked: ${obstacles.slice(0, 8).map(n => n.label).join(', ')}`;
+  }
+
+  try {
+    const plan = await planner.planGoal(goal, sceneSummary);
+    if (ctx.cancelled()) return makeError(reqId, ERR.INTERNAL, 'cancelled');
+
+    ctx.emit({ phase: 'planned', step_count: plan.steps.length });
+
+    return makeResult(reqId, {
+      goal: plan.mainGoal,
+      trace_id: plan.traceId,
+      step_count: plan.steps.length,
+      steps: plan.steps.map(s => ({
+        description: s.description,
+        target: s.targetLabel ?? null,
+        constraints: s.constraints,
+      })),
+      negative_constraints: plan.negativeConstraints.length,
+      // Execution status not tracked by this cartridge call — the result
+      // signals "plan ready", not "navigation complete". See method
+      // header comment for integrator pattern.
+      execution: 'integrator_responsibility',
+    });
+  } catch (err) {
+    return makeError(reqId, ERR.INTERNAL, `planning failed: ${(err as Error).message}`);
+  }
 };
 
 // ── observe ───────────────────────────────────────────────────────

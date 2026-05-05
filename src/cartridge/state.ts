@@ -10,6 +10,7 @@
 import type { UDPTransmitter } from '../bridge/udp_transmitter';
 import type { SceneGraph } from '../brain/memory/scene_graph';
 import type { ReactiveController } from '../control/reactive_controller';
+import type { HierarchicalPlanner } from '../brain/planning/planner';
 
 export interface RobotState {
   /** UDP transmitter to the ESP32. Unset → cartridge methods that need
@@ -27,8 +28,11 @@ export interface RobotState {
    *  loop. The cartridge describe method reads this; if unset, describe
    *  returns BACKEND_UNAVAILABLE. */
   lastDescription?: { text: string; timestamp: number };
-  // Future:
-  //   planner?: Planner;
+  /** Hierarchical planner for navigate. The cartridge calls planGoal();
+   *  plan EXECUTION (running the steps through the reactive loop) is the
+   *  integrator's responsibility — see methods.ts navigate for the
+   *  contract and src/cartridge/README.md for integration patterns. */
+  planner?: HierarchicalPlanner;
 }
 
 let state: RobotState = {};
