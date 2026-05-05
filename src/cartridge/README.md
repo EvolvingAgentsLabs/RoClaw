@@ -61,15 +61,15 @@ The adapter logs `client connected` / `client disconnected` and the status of ea
 
 ## Methods
 
-| Method | Status | Purpose |
+| Method | Status | Behavior |
 |---|---|---|
-| `navigate({goal, timeout_s, policy})` | scaffolded | NL goal → planner → reactive loop → bytecode |
-| `observe({})` | scaffolded | SceneGraph snapshot (objects, positions, distances) |
-| `describe({})` | scaffolded | NL description from SemanticLoop's last VLM result |
-| `stop({})` | scaffolded | Emergency stop (STOP bytecode via UDP) |
-| `set_speed({max})` | scaffolded | Cap reactive controller speed |
+| `navigate({goal, timeout_s, policy})` | wired (planning) | Calls `HierarchicalPlanner.planGoal()`. Returns the multi-step plan. **Plan execution is integrator-managed** (see method header in [`methods.ts`](methods.ts)). |
+| `observe({})` | wired | Returns `SceneGraph.toJSON()` — robot pose plus tracked objects with bboxes, confidences, last-seen timestamps. |
+| `describe({})` | wired | Returns the most recent VLM textual description cached by the semantic loop, plus age in ms. |
+| `stop({})` | wired | Emits STOP (opcode 0x07) directly via UDP. ESP32 firmware safety layer halts motors within one tick (~50ms). |
+| `set_speed({max: slow\|normal\|fast})` | wired | Calls `ReactiveController.setSpeedTier()`. Effective on next tick. |
 
-Method bodies live in [`methods.ts`](methods.ts). Each currently returns `NOT_IMPLEMENTED` with an explicit TODO marker pointing at the runtime integration site (planner, SemanticLoop, ReactiveController, UDP transmitter). Wire format and message envelope are real and testable today; runtime integration lands incrementally.
+All five method bodies are real (not stubs). Each consults [`state.ts`](state.ts) for its required subsystem; if the integrator has not registered it, the method returns `HARDWARE_UNAVAILABLE` with a clear error message naming the missing slot.
 
 ## Cartridge manifest
 
@@ -84,17 +84,42 @@ skillos_robot has its own ISA — the 6-byte UDP bytecode for stepper-motor comm
 
 The cartridge adapter is the bridge. An upstream OS emits a syscall; the adapter dispatches to the planner; the planner produces motor primitives; the reactive loop emits bytecode. Nothing competes.
 
-## Implementation order
+## Integration: how to register live subsystems
 
-The wire protocol (this PR) lands first. Method bodies are stubbed with explicit TODO markers. Subsequent PRs wire each method to its real backing subsystem:
+Methods read live state from [`state.ts`](state.ts). The integrator (whoever starts the robot's main reactive/perception loops) must populate it:
 
-1. **PR A — `stop`**. Smallest dependency surface (just UDP). Should be a one-liner once `udp_transmitter.ts` exposes a `sendStop()` helper.
-2. **PR B — `observe`**. Requires SceneGraph singleton accessor. Read-only against existing data structure.
-3. **PR C — `describe`**. Requires SemanticLoop to cache its last VLM textual output.
-4. **PR D — `set_speed`**. Requires ReactiveController to expose a runtime speed cap setter.
-5. **PR E — `navigate`**. The big one. Refactor `planner.run()` to be a function that takes a goal + emits progress events instead of being startup-coupled.
+```ts
+import { setRobotState } from './cartridge/state';
+import { startCartridgeAdapter } from './cartridge/adapter';
+import { UDPTransmitter } from './bridge/udp_transmitter';
+import { SceneGraph } from './brain/memory/scene_graph';
+import { ReactiveController } from './control/reactive_controller';
+import { HierarchicalPlanner } from './brain/planning/planner';
 
-Until those land, the adapter is useful as a wire-format reference and as a smoke target for upstream callers developing against the cartridge contract.
+// 1. Construct subsystems (or reuse the ones your main loop already created).
+const transmitter = new UDPTransmitter({ host: '192.168.1.100' });
+await transmitter.connect();
+const sceneGraph = new SceneGraph();
+const reactiveController = new ReactiveController();
+const planner = new HierarchicalPlanner(infer, memoryManager);
+
+// 2. Register them so cartridge methods can find them.
+setRobotState({ transmitter, sceneGraph, reactiveController, planner });
+
+// 3. (Per perception cycle) refresh the cached scene description.
+setRobotState({ lastDescription: { text: vlmResult, timestamp: Date.now() } });
+
+// 4. Start the cartridge adapter.
+startCartridgeAdapter({ port: 7424 });
+```
+
+The CLI ([`cli.ts`](cli.ts)) wires only the UDPTransmitter (via `--robot-host`) — sufficient for testing `stop` end-to-end. To wire the other methods, embed the adapter in your main process and call `setRobotState()` with live instances.
+
+## Plan execution is the integrator's responsibility
+
+`navigate` returns a `HierarchicalPlanner` plan. It does NOT drive the reactive loop to execute that plan. Coupling cartridge calls to plan completion would require fundamental refactors of the reactive loop's lifecycle (today it owns its own goal source and runs at 20Hz independently); the cartridge contract is "give me a plan", not "finish driving."
+
+The recommended integration pattern: feed `plan.steps` into the reactive loop's goal queue, emit progress via the adapter's WebSocket channel, and resolve a separate `await_done` cartridge call when execution completes — or use a different mechanism that fits your runtime. The `result.execution: 'integrator_responsibility'` field signals this explicitly.
 
 ## Smoke test
 
