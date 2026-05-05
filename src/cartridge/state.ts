@@ -8,15 +8,26 @@
 // graphs, that's a deeper architectural change, not a state.ts change.
 
 import type { UDPTransmitter } from '../bridge/udp_transmitter';
+import type { SceneGraph } from '../brain/memory/scene_graph';
+import type { ReactiveController } from '../control/reactive_controller';
 
 export interface RobotState {
   /** UDP transmitter to the ESP32. Unset → cartridge methods that need
    *  motor control return HARDWARE_UNAVAILABLE. */
   transmitter?: UDPTransmitter;
-  // Future fields land here as PRs B/C/D/E wire each method:
-  //   sceneGraph?: SceneGraph;
-  //   reactiveController?: ReactiveController;
-  //   semanticLoop?: SemanticLoop;
+  /** Shared SceneGraph instance. The semantic loop writes; the cartridge
+   *  observe method reads. Must be the SAME instance the running
+   *  perception loop is updating, otherwise observe returns stale data. */
+  sceneGraph?: SceneGraph;
+  /** Shared ReactiveController. set_speed mutates its tier; the running
+   *  reactive loop (if any) reads its config each tick. Must be the same
+   *  instance the loop uses. */
+  reactiveController?: ReactiveController;
+  /** Most recent VLM textual scene description, refreshed by the semantic
+   *  loop. The cartridge describe method reads this; if unset, describe
+   *  returns BACKEND_UNAVAILABLE. */
+  lastDescription?: { text: string; timestamp: number };
+  // Future:
   //   planner?: Planner;
 }
 

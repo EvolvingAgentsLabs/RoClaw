@@ -115,6 +115,24 @@ export class ReactiveController {
   }
 
   /**
+   * Apply a runtime speed cap by tier name. Cartridge robot.set_speed
+   * routes to this. Slow halves the cruise/approach defaults; fast
+   * raises cruise to 240 (still within 0–255 PWM range). Rotation speed
+   * scales proportionally.
+   */
+  setSpeedTier(tier: 'slow' | 'normal' | 'fast'): void {
+    const factors: Record<typeof tier, { cruise: number; approach: number; rotate: number }> = {
+      slow:   { cruise:  90, approach:  60, rotate: 50 },
+      normal: { cruise: 200, approach: 100, rotate: 70 },
+      fast:   { cruise: 240, approach: 130, rotate: 90 },
+    };
+    const f = factors[tier];
+    this.cfg.cruiseSpeed = f.cruise;
+    this.cfg.approachSpeed = f.approach;
+    this.cfg.rotationSpeed = f.rotate;
+  }
+
+  /**
    * Decide the next motor command from the current SceneGraph and goal.
    * Pure (no graph mutation, no I/O).
    */

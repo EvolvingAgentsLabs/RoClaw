@@ -50,23 +50,44 @@ const navigate: MethodImpl = async (args, ctx, reqId) => {
 };
 
 // ── observe ───────────────────────────────────────────────────────
-// TODO: read from the live SceneGraph instance held by SemanticLoop.
-// Today SceneGraph is constructed inside the perception pipeline; needs
-// to be exposed via a singleton or DI to be queryable from here.
+// Returns a SceneGraph snapshot — every tracked object plus the robot
+// pose. The integrator must register the running SceneGraph instance
+// via setRobotState({sceneGraph}) so this returns live data.
 const observe: MethodImpl = async (_args, _ctx, reqId) => {
-  // TODO: const snapshot = sceneGraph.snapshot();
-  // Stub: return a recognizable shape upstream developers can code against.
-  return makeError(reqId, ERR.NOT_IMPLEMENTED,
-    'observe is scaffolded — wire to brain/memory/scene_graph.ts (snapshot accessor needed)');
+  const { sceneGraph } = getRobotState();
+  if (!sceneGraph) {
+    return makeError(reqId, ERR.HARDWARE_UNAVAILABLE,
+      'SceneGraph not registered in cartridge state. Embed adapter in process running the semantic loop and call setRobotState({sceneGraph}).');
+  }
+  const json = sceneGraph.toJSON();
+  const robot = sceneGraph.robot;
+  return makeResult(reqId, {
+    robot: {
+      id: robot.id,
+      label: robot.label,
+      position: { x: robot.position[0], y: robot.position[1], z: robot.position[2] },
+      heading_deg: robot.getHeadingDegrees(),
+    },
+    objects: json.nodes.filter(n => n.id !== robot.id),
+    object_count: json.nodes.length - 1,
+  });
 };
 
 // ── describe ──────────────────────────────────────────────────────
-// TODO: cache the most recent VLM textual output from SemanticLoop and
-// return it. Or trigger a fresh VLM call against the current frame
-// buffer (more authoritative, slower).
+// Returns the most recent VLM textual scene description cached by the
+// semantic loop. Stale by up to one perception cycle (~500ms-1s) but
+// avoids triggering a new VLM call per request. Returns BACKEND_UNAVAILABLE
+// if no description has been cached yet.
 const describe: MethodImpl = async (_args, _ctx, reqId) => {
-  return makeError(reqId, ERR.NOT_IMPLEMENTED,
-    'describe is scaffolded — wire to brain/perception/semantic_loop.ts (latest VLM result accessor needed)');
+  const { lastDescription } = getRobotState();
+  if (!lastDescription) {
+    return makeError(reqId, ERR.HARDWARE_UNAVAILABLE,
+      'No scene description cached. Semantic loop must call setRobotState({lastDescription: {text, timestamp}}) after each VLM run.');
+  }
+  return makeResult(reqId, {
+    text: lastDescription.text,
+    age_ms: Date.now() - lastDescription.timestamp,
+  });
 };
 
 // ── stop ──────────────────────────────────────────────────────────
@@ -91,16 +112,29 @@ const stop: MethodImpl = async (_args, _ctx, reqId) => {
 };
 
 // ── set_speed ─────────────────────────────────────────────────────
-// TODO: update ReactiveController's speed cap. Should take effect within
-// one tick (~50ms) since the controller reads its config each cycle.
+// Updates the running ReactiveController's speed tier. Effective on the
+// next tick (~50ms) since the controller reads cfg every decide() call.
+// The integrator must register the live controller via
+// setRobotState({reactiveController}) — there's no point setting tier on
+// a controller that isn't the one driving motion.
 const setSpeed: MethodImpl = async (args, _ctx, reqId) => {
   const max = String(args.max ?? '');
   if (!['slow', 'normal', 'fast'].includes(max)) {
     return makeError(reqId, ERR.INVALID_ARGS, 'set_speed.max must be slow|normal|fast');
   }
-  // TODO: reactiveController.setSpeedCap(max);
-  return makeError(reqId, ERR.NOT_IMPLEMENTED,
-    'set_speed is scaffolded — wire to control/reactive_controller.ts (setSpeedCap helper)');
+  const { reactiveController } = getRobotState();
+  if (!reactiveController) {
+    return makeError(reqId, ERR.HARDWARE_UNAVAILABLE,
+      'ReactiveController not registered. Integrator must call setRobotState({reactiveController}) with the live instance driving motion.');
+  }
+  reactiveController.setSpeedTier(max as 'slow' | 'normal' | 'fast');
+  const cfg = reactiveController.getConfig();
+  return makeResult(reqId, {
+    tier: max,
+    cruise_speed: cfg.cruiseSpeed,
+    approach_speed: cfg.approachSpeed,
+    rotation_speed: cfg.rotationSpeed,
+  });
 };
 
 export const METHODS: Record<string, MethodImpl> = {
