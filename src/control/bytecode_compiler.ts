@@ -626,7 +626,8 @@ Output ONLY valid JSON, no markdown fences, in this exact shape:
   ]
 }
 
-box_2d coordinates MUST be normalized to the 0-1000 range. Image origin is
+CRITICAL: box_2d array order MUST be [ymin, xmin, ymax, xmax] — NOT [xmin, ymin, xmax, ymax].
+All coordinates are normalized to 0-1000 (not pixels). Image origin is
 top-left; xmin < xmax and ymin < ymax. Omit objects you cannot see.`;
 
 // =============================================================================
@@ -672,7 +673,8 @@ Output ONLY valid JSON, no markdown fences, in this exact shape:
   ]
 }
 
-box_2d coordinates MUST be normalized to the 0-1000 range. Image origin is
+CRITICAL: box_2d array order MUST be [ymin, xmin, ymax, xmax] — NOT [xmin, ymin, xmax, ymax].
+All coordinates are normalized to 0-1000 (not pixels). Image origin is
 top-left; xmin < xmax and ymin < ymax.
 If the target is NOT visible in the frame, return {"objects": []}.`;
 
