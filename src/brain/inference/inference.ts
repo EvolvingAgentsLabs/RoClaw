@@ -206,12 +206,21 @@ export class CerebellumInference {
       headers['X-Title'] = 'skillos_robot Cerebellum';
     }
 
-    const body = JSON.stringify({
+    const requestBody: Record<string, unknown> = {
       model: this.config.model,
       messages,
       max_tokens: this.config.maxTokens,
       temperature: this.config.temperature,
-    });
+    };
+
+    // Enforce structured JSON output when the system prompt demands it.
+    // This prevents chatty preamble, markdown fences, or <think> tags that
+    // would break downstream JSON parsers (e.g. scene_response_parser).
+    if (systemPrompt.includes('Output ONLY valid JSON')) {
+      requestBody.response_format = { type: 'json_object' };
+    }
+
+    const body = JSON.stringify(requestBody);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);

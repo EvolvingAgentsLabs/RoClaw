@@ -11,6 +11,7 @@ import type { UDPTransmitter } from '../bridge/udp_transmitter';
 import type { SceneGraph } from '../brain/memory/scene_graph';
 import type { ReactiveController } from '../control/reactive_controller';
 import type { HierarchicalPlanner } from '../brain/planning/planner';
+import type { VisionLoop } from '../brain/perception/vision_loop';
 
 export interface RobotState {
   /** UDP transmitter to the ESP32. Unset → cartridge methods that need
@@ -28,11 +29,13 @@ export interface RobotState {
    *  loop. The cartridge describe method reads this; if unset, describe
    *  returns BACKEND_UNAVAILABLE. */
   lastDescription?: { text: string; timestamp: number };
-  /** Hierarchical planner for navigate. The cartridge calls planGoal();
-   *  plan EXECUTION (running the steps through the reactive loop) is the
-   *  integrator's responsibility — see methods.ts navigate for the
-   *  contract and src/cartridge/README.md for integration patterns. */
+  /** Hierarchical planner for navigate. The cartridge calls planGoal()
+   *  and, if visionLoop is registered, starts physical execution. */
   planner?: HierarchicalPlanner;
+  /** Live VisionLoop instance. When registered, navigate starts physical
+   *  execution (dual-loop perception + motor control) after planning.
+   *  Must be the SAME instance with enableDualLoop() already called. */
+  visionLoop?: VisionLoop;
 }
 
 let state: RobotState = {};

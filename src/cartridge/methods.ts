@@ -27,27 +27,20 @@ export type MethodImpl = (
 
 // ── navigate ──────────────────────────────────────────────────────
 // Calls HierarchicalPlanner.planGoal() to decompose the NL goal into
-// PlanSteps. Returns the plan as the cartridge result.
-//
-// IMPORTANT — Plan EXECUTION is the integrator's responsibility, not
-// this cartridge's. The reactive loop reads its own goal and runs
-// independently at 20Hz; coupling cartridge calls to plan completion
-// would require fundamental refactors of the reactive loop's lifecycle
-// and is intentionally out of scope here. Pattern for the integrator:
-//   1. Cartridge call returns the plan.
-//   2. Integrator feeds steps into the reactive loop's goal queue.
-//   3. Reactive loop executes; integrator emits progress via the
-//      adapter's emit channel and resolves a separate result message
-//      when execution completes (or use a follow-up `await_done` call).
+// PlanSteps. If a live VisionLoop is registered in state, starts
+// physical execution (dual-loop perception + motor control) using the
+// first plan step as the tactical goal. Returns the plan immediately;
+// execution runs asynchronously. The upstream caller receives
+// 'arrival' or 'stuck' progress events when navigation completes.
 const navigate: MethodImpl = async (args, ctx, reqId) => {
   const goal = String(args.goal ?? '').trim();
   if (!goal) return makeError(reqId, ERR.INVALID_ARGS, 'navigate requires args.goal (string)');
   const policy = args.policy === 'fast' ? 'fast' : 'safe';
 
-  const { planner, sceneGraph } = getRobotState();
+  const { planner, sceneGraph, visionLoop } = getRobotState();
   if (!planner) {
     return makeError(reqId, ERR.HARDWARE_UNAVAILABLE,
-      'HierarchicalPlanner not registered. Integrator must call setRobotState({planner}) with the live planner instance.');
+      'HierarchicalPlanner not registered. Call setRobotState({planner}) with the live planner instance.');
   }
 
   ctx.emit({ phase: 'planning', goal, policy });
@@ -67,6 +60,40 @@ const navigate: MethodImpl = async (args, ctx, reqId) => {
 
     ctx.emit({ phase: 'planned', step_count: plan.steps.length });
 
+    // Start physical execution if VisionLoop is registered
+    let execution: string = 'plan_only';
+    if (visionLoop) {
+      const firstStepGoal = plan.steps[0]?.description ?? goal;
+      visionLoop.setGoal(firstStepGoal);
+
+      if (!visionLoop.isRunning()) {
+        // Fire-and-forget: start the perception+motor loops asynchronously.
+        // The cartridge returns the plan immediately; the caller receives
+        // 'arrival' or 'stuck' progress events when navigation completes.
+        visionLoop.start(firstStepGoal).catch(err => {
+          ctx.emit({ phase: 'error', message: `VisionLoop start failed: ${(err as Error).message}` });
+        });
+      }
+
+      // Forward arrival/stuck events as progress messages to the caller
+      const onArrival = (reason: string) => {
+        ctx.emit({ phase: 'arrived', reason });
+        cleanup();
+      };
+      const onStuck = (reason: string) => {
+        ctx.emit({ phase: 'stuck', reason });
+        cleanup();
+      };
+      const cleanup = () => {
+        visionLoop.removeListener('arrival', onArrival);
+        visionLoop.removeListener('stuck', onStuck);
+      };
+      visionLoop.on('arrival', onArrival);
+      visionLoop.on('stuck', onStuck);
+
+      execution = 'started';
+    }
+
     return makeResult(reqId, {
       goal: plan.mainGoal,
       trace_id: plan.traceId,
@@ -77,10 +104,7 @@ const navigate: MethodImpl = async (args, ctx, reqId) => {
         constraints: s.constraints,
       })),
       negative_constraints: plan.negativeConstraints.length,
-      // Execution status not tracked by this cartridge call — the result
-      // signals "plan ready", not "navigation complete". See method
-      // header comment for integrator pattern.
-      execution: 'integrator_responsibility',
+      execution,
     });
   } catch (err) {
     return makeError(reqId, ERR.INTERNAL, `planning failed: ${(err as Error).message}`);
@@ -129,12 +153,18 @@ const describe: MethodImpl = async (_args, _ctx, reqId) => {
 };
 
 // ── stop ──────────────────────────────────────────────────────────
-// Emits STOP (opcode 0x07) directly over UDP. Bypasses the 20Hz reactive
-// loop — the ESP32 firmware safety layer guarantees the motors halt
-// within one tick (~50ms). Idempotent: sending STOP when already stopped
-// is harmless.
+// Halts all robot motion: stops the VisionLoop (perception + reactive
+// control), then emits STOP (opcode 0x07) directly over UDP. The ESP32
+// firmware safety layer guarantees motors halt within one tick (~50ms).
+// Idempotent: sending STOP when already stopped is harmless.
 const stop: MethodImpl = async (_args, _ctx, reqId) => {
-  const { transmitter } = getRobotState();
+  const { transmitter, visionLoop } = getRobotState();
+
+  // Stop the perception + motor loops first
+  if (visionLoop?.isRunning()) {
+    visionLoop.stop();
+  }
+
   if (!transmitter) {
     return makeError(reqId, ERR.HARDWARE_UNAVAILABLE,
       'UDP transmitter not configured. Start adapter with --robot-host <ip> [--robot-port <n>].');
@@ -142,7 +172,7 @@ const stop: MethodImpl = async (_args, _ctx, reqId) => {
   try {
     const frame = encodeFrame({ opcode: Opcode.STOP, paramLeft: 0, paramRight: 0 });
     await transmitter.send(frame);
-    return makeResult(reqId, { stopped: true, opcode: 'STOP', frame_bytes: frame.length });
+    return makeResult(reqId, { stopped: true, opcode: 'STOP', frame_bytes: frame.length, vision_loop_stopped: true });
   } catch (err) {
     return makeError(reqId, ERR.HARDWARE_UNAVAILABLE,
       `STOP transmit failed: ${(err as Error).message}`);
